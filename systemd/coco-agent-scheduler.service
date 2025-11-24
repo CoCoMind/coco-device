@@ -1,0 +1,13 @@
+[Unit]
+Description=Coco scheduled session runner (twice daily)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=pi
+WorkingDirectory=%h/coco-device
+ExecStart=/usr/local/bin/run-scheduled-session.sh
+
+[Install]
+WantedBy=multi-user.target

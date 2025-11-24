@@ -1,0 +1,12 @@
+[Unit]
+Description=Coco device heartbeat sender
+
+[Service]
+Type=oneshot
+User=pi
+Group=pi
+ExecStart=/usr/local/bin/coco-heartbeat.sh
+Nice=10
+
+[Install]
+WantedBy=multi-user.target

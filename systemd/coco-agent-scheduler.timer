@@ -1,0 +1,11 @@
+[Unit]
+Description=Run Coco scheduled session twice daily
+
+[Timer]
+OnCalendar=*-*-* 09:00:00
+OnCalendar=*-*-* 15:00:00
+Persistent=true
+Unit=coco-agent-scheduler.service
+
+[Install]
+WantedBy=timers.target

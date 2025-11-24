@@ -1,0 +1,18 @@
+[Unit]
+Description=Wi-Fi USB provisioning loop
+After=local-fs.target network-pre.target
+Wants=network-pre.target
+ConditionPathExists=/usr/local/bin/wifi-provision.sh
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/wifi-provision.sh
+Restart=always
+RestartSec=10
+# Adjust interface or loop speed by overriding these environment variables in a drop-in.
+Environment=WLAN_IFACE=wlan0
+Environment=LOOP_DELAY_SECONDS=15
+Environment=AUDIO_DEVICE=plughw:3,0
+
+[Install]
+WantedBy=multi-user.target

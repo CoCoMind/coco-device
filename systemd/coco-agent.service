@@ -1,0 +1,15 @@
+[Unit]
+Description=Coco Native Agent
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=pi
+WorkingDirectory=%h/coco-device
+ExecStart=/usr/local/bin/coco-native-agent-boot.sh
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

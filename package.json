@@ -1,0 +1,27 @@
+{
+  "name": "coco-device",
+  "version": "1.0.0",
+  "main": "index.js",
+  "scripts": {
+    "start": "tsx src/runAgent.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "npm run typecheck"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@openai/agents": "^0.3.0",
+    "@openai/agents-core": "^0.3.0",
+    "@openai/agents-realtime": "^0.3.0",
+    "codex": "^0.2.3",
+    "openai": "^6.8.1",
+    "tsx": "^4.20.6",
+    "zod": "^3.25.6"
+  },
+  "devDependencies": {
+    "@types/node": "^20.16.5",
+    "typescript": "^5.5.4"
+  },
+  "description": ""
+}

@@ -1,0 +1,196 @@
+[
+  {
+    "id": "orientation_multi_checkin",
+    "category": "orientation",
+    "title": "Layered check-in",
+    "prompt": "Open warmly, then peel back two more layers about how the day feels.",
+    "domain": "mindfulness",
+    "duration_min": 1,
+    "type": "cue",
+    "instructions": "Start with a light observation, follow with feelings, finish with a supportive reflection.",
+    "script": [
+      "I’m happy to be with you. What’s the first thing you noticed when you woke up today?",
+      "When that happened, how did it land in your body? Was it energizing, tiring, or something else?",
+      "If that feeling could whisper a tiny request for today, what would it ask for?"
+    ],
+    "goal": "Create emotional safety and orient to the present moment.",
+    "tags": ["orientation", "rapport", "mindfulness"]
+  },
+  {
+    "id": "orientation_daily_touchstone",
+    "category": "orientation",
+    "title": "Daily touchstone",
+    "prompt": "Use a personal anchor—favorite mug, chair, or window view—to orient to time and place.",
+    "domain": "reality_orientation",
+    "duration_min": 1,
+    "type": "cue",
+    "instructions": "Invite the user to describe this anchor and how it fits into their routine.",
+    "script": [
+      "Walk me through the item or view that feels most “you” right now.",
+      "What memories attach themselves to that item? Who else is tucked inside that memory?",
+      "How does that memory shape what you’d like to do with the rest of today?"
+    ],
+    "goal": "Blend sensory grounding with personal routines to strengthen orientation.",
+    "tags": ["orientation", "CST"]
+  },
+  {
+    "id": "language_story_seed",
+    "category": "language",
+    "title": "Story seed conversation",
+    "prompt": "Pick a personal topic (favorite room, family motto, treasured object) and guide the user to expand it into a short story.",
+    "domain": "language",
+    "duration_min": 2,
+    "type": "conversation",
+    "instructions": "Use leading questions that highlight feelings, people, and context. Reflect back key words.",
+    "script": [
+      "Pick a topic—maybe a hallway picture, a family saying, or a favorite chair. What’s the first scene that pops up?",
+      "Staying with that scene: who is standing next to you, and what are they doing?",
+      "If I could step into that moment, what should I know to really “get” how it felt for you?"
+    ],
+    "goal": "Encourage expressive language rooted in personal meaning.",
+    "tags": ["language", "reminiscence", "empathy"]
+  },
+  {
+    "id": "language_letter_moment",
+    "category": "language",
+    "title": "Letter in the air",
+    "prompt": "Invite the user to imagine a short note to a loved one or future self.",
+    "domain": "executive",
+    "duration_min": 2,
+    "type": "fluency",
+    "instructions": "Break the note into greeting, gratitude, and gentle encouragement. Offer sentence starters.",
+    "script": [
+      "Let’s write the opening line. Who are you writing to, and what greeting makes them smile?",
+      "Add one vivid detail or inside joke so they can hear your voice. What detail do you see?",
+      "Finish with a promise or wish. How do you want them to feel right after they read it?"
+    ],
+    "goal": "Blend language practice with emotional expression and perspective taking.",
+    "tags": ["language", "emotional_expression"]
+  },
+  {
+    "id": "memory_strength_phrase",
+    "category": "memory",
+    "title": "Strength phrase rehearsal",
+    "prompt": "Teach or rehearse a personalized phrase such as \"I am steady and supported\" using spaced retrieval.",
+    "domain": "spaced_retrieval",
+    "duration_min": 2,
+    "type": "recall",
+    "instructions": "Pair the phrase with a small hand motion or tapping cue. Repeat at increasing intervals.",
+    "script": [
+      "Let’s say the phrase together once with a calm breath.",
+      "Now say it again while imagining the person who believes in you most standing beside you.",
+      "Let’s stretch the pause—inhale, exhale, and say it once more as if you’re gifting it to yourself."
+    ],
+    "goal": "Install a calming script the user can reuse during the day.",
+    "tags": ["memory", "mindfulness", "SR"]
+  },
+  {
+    "id": "memory_recipe_share",
+    "category": "memory",
+    "title": "Favorite recipe walkthrough",
+    "prompt": "Guide the user to recall a meaningful meal step by step.",
+    "domain": "errorless_learning",
+    "duration_min": 2,
+    "type": "conversation",
+    "instructions": "Prompt senses (smell, texture), people involved, and variations they loved.",
+    "script": [
+      "What recipe are we cooking in our minds, and who is standing in the kitchen with you?",
+      "Walk me through the sights and smells step by step—what happens first, next, and then?",
+      "When did you make this most recently, and who were you hoping to nourish?"
+    ],
+    "goal": "Reinforce autobiographical memory while practicing sequencing.",
+    "tags": ["memory", "life_story"]
+  },
+  {
+    "id": "attention_sound_switch",
+    "category": "attention",
+    "title": "Soundscape switch",
+    "prompt": "Alternate between naming quiet sounds around you and imagining sounds you love.",
+    "domain": "attention",
+    "duration_min": 2,
+    "type": "dual_task",
+    "instructions": "Use a gentle count (one real sound, one imagined). Encourage slow breathing.",
+    "script": [
+      "Pause and name the softest sound around you right now.",
+      "Now close your eyes and pick a sound from a favorite place—who’s there with you?",
+      "Let’s do it again: one real sound, one imagined sound, and a word for how each makes you feel."
+    ],
+    "goal": "Practice shifting attention while inviting pleasant imagery.",
+    "tags": ["attention", "mindfulness"]
+  },
+  {
+    "id": "attention_story_match",
+    "category": "attention",
+    "title": "Story-match game",
+    "prompt": "Offer two quick scenarios and ask the user to match them with feelings, colors, or objects.",
+    "domain": "attention/dual-task",
+    "duration_min": 2,
+    "type": "game",
+    "instructions": "Keep scenarios personal (family picnic vs. cozy reading). Validate whichever associations arise.",
+    "script": [
+      "I’ll name two moments (e.g., family picnic vs. quiet morning). You tell me who appears in each one first.",
+      "What colors or textures belong to each moment, and why?",
+      "Which feeling or object do you want to carry forward from each scene today?"
+    ],
+    "goal": "Engage cognitive flexibility with personally resonant material.",
+    "tags": ["attention", "CST_mixers"]
+  },
+  {
+    "id": "reminiscence_support_circle",
+    "category": "reminiscence",
+    "title": "Support circle spotlight",
+    "prompt": "Invite the user to share about someone who has supported them recently or in the past.",
+    "domain": "goal_support",
+    "duration_min": 2,
+    "type": "conversation",
+    "instructions": "Ask about specific gestures, gratitude, and how the user pays that care forward.",
+    "script": [
+      "Name someone—past or present—who showed up for you recently.",
+      "What exact moment proved they were in your corner? Paint me the scene.",
+      "If you could send them a one-line thank-you right now, what would it say, and how would it change your day?"
+    ],
+    "goal": "Highlight social connection and agency.",
+    "tags": ["reminiscence", "empathy"]
+  },
+  {
+    "id": "reminiscence_future_note",
+    "category": "reminiscence",
+    "title": "Future self postcard",
+    "prompt": "Guide the user to imagine mailing a postcard to themselves a month from now.",
+    "domain": "CR/goal support",
+    "duration_min": 2,
+    "type": "conversation",
+    "instructions": "Blend reminiscence with forward planning; anchor advice in past successes.",
+    "script": [
+      "Imagine you’re mailing yourself a postcard a month from now. What photo is on the front, and why?",
+      "Write one sentence about what you hope you’ll be proud of by then.",
+      "End with a tiny promise or reminder. What does future-you need to hear most?"
+    ],
+    "goal": "Link memories with motivation and hope.",
+    "tags": ["reminiscence", "goal_setting"]
+  },
+  {
+    "id": "closing_personal_affirmation",
+    "category": "closing",
+    "title": "Personal affirmation sendoff",
+    "prompt": "Summarize something the user shared and craft a brief affirmation around it.",
+    "domain": "mood",
+    "duration_min": 1,
+    "type": "closing",
+    "instructions": "Name the theme (e.g., kindness, resilience) and invite one deep breath with that word.",
+    "goal": "Ensure the final moment feels personal and affirming, explicitly referencing something they shared.",
+    "tags": ["closing", "empathy"]
+  },
+  {
+    "id": "closing_music_bridge",
+    "category": "closing",
+    "title": "Music bridge farewell",
+    "prompt": "Close with a suggestion to hum or play the song (or story detail) mentioned earlier, tying the session to their mood.",
+    "domain": "music",
+    "duration_min": 1,
+    "type": "closing",
+    "instructions": "Mention a detail they offered (name, place, feeling) and connect it to a gentle next step.",
+    "goal": "Create continuity between the session and the user’s personal world.",
+    "tags": ["closing", "music"]
+  }
+]
