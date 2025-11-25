@@ -1,17 +1,40 @@
 import { spawn, ChildProcess } from "node:child_process";
 import { RealtimeSession } from "@openai/agents/realtime";
 
-const SAMPLE_RATE = Number(process.env.COCO_AUDIO_SAMPLE_RATE ?? "24000");
+const MAX_SAMPLE_RATE = 24000;
+const SAMPLE_RATE = (() => {
+  const raw = Number(process.env.COCO_AUDIO_SAMPLE_RATE ?? "24000");
+  if (!Number.isFinite(raw) || raw <= 0) {
+    console.warn(
+      `[alsa] Invalid COCO_AUDIO_SAMPLE_RATE="${process.env.COCO_AUDIO_SAMPLE_RATE}"; defaulting to ${MAX_SAMPLE_RATE}.`,
+    );
+    return MAX_SAMPLE_RATE;
+  }
+  if (raw > MAX_SAMPLE_RATE) {
+    console.warn(
+      `[alsa] COCO_AUDIO_SAMPLE_RATE=${raw} exceeds realtime max of ${MAX_SAMPLE_RATE}; clamping.`,
+    );
+    return MAX_SAMPLE_RATE;
+  }
+  return raw;
+})();
 const CHANNELS = Number(process.env.COCO_AUDIO_CHANNELS ?? "1");
 const SAMPLE_FORMAT = process.env.COCO_AUDIO_SAMPLE_FORMAT ?? "S16_LE";
 const OUTPUT_DEVICE = process.env.COCO_AUDIO_OUTPUT_DEVICE ?? "pulse";
-const INPUT_DEVICE = process.env.COCO_AUDIO_INPUT_DEVICE ?? "pulse";
+const INPUT_DEVICE_RAW = process.env.COCO_AUDIO_INPUT_DEVICE;
+const INPUT_DEVICE = INPUT_DEVICE_RAW ?? "pulse";
+const CAPTURE_DISABLED =
+  INPUT_DEVICE_RAW === "" || process.env.COCO_AUDIO_INPUT_DISABLE === "1";
+const PLAYBACK_MUTE_MS = Number(
+  process.env.COCO_AUDIO_PLAYBACK_MUTE_MS ?? "1500",
+);
 
 export const ALSA_SAMPLE_RATE = SAMPLE_RATE;
 
 type AudioBinding = {
   start(): void;
   stop(): void;
+  waitForPlaybackIdle?: (maxWaitMs?: number) => Promise<void>;
 };
 
 function bufferToArrayBuffer(buffer: Buffer): ArrayBuffer {
@@ -62,6 +85,12 @@ export function createAlsaAudioBinding(session: RealtimeSession): AudioBinding {
   let capture: ChildProcess | null = null;
   let listenerAttached = false;
   let playbackBackpressure = false;
+  const playbackQueue: Buffer[] = [];
+  let muteCaptureUntil = 0;
+  let pendingPlaybackMs = 0;
+  const bytesPerSample = SAMPLE_FORMAT.includes("8") ? 1 : 2;
+  const bytesPerSecond = SAMPLE_RATE * CHANNELS * bytesPerSample;
+  const playbackLagFloorMs = 150;
 
   const playbackArgs = [
     "-t",
@@ -93,10 +122,40 @@ export function createAlsaAudioBinding(session: RealtimeSession): AudioBinding {
     "-",
   ];
 
+  const flushPlaybackQueue = () => {
+    const current = playback;
+    const stdin = current?.stdin;
+    if (
+      !current ||
+      !stdin ||
+      current.killed ||
+      stdin.destroyed ||
+      !stdin.writable
+    ) {
+      playbackQueue.length = 0;
+      playbackBackpressure = false;
+      return;
+    }
+    playbackBackpressure = false;
+    while (playbackQueue.length) {
+      const next = playbackQueue.shift();
+      if (!next) {
+        continue;
+      }
+      const ok = stdin.write(next);
+      if (!ok) {
+        playbackBackpressure = true;
+        stdin.once("drain", flushPlaybackQueue);
+        break;
+      }
+    }
+  };
+
   const audioHandler = (event: { data?: ArrayBuffer }) => {
     if (!event?.data) {
       return;
     }
+    muteCaptureUntil = Date.now() + PLAYBACK_MUTE_MS;
     const currentPlayback = playback;
     const stdin = currentPlayback?.stdin;
     if (
@@ -108,17 +167,29 @@ export function createAlsaAudioBinding(session: RealtimeSession): AudioBinding {
     ) {
       return;
     }
-    if (playbackBackpressure) {
-      return;
-    }
     const chunk = Buffer.from(event.data);
     try {
+      if (bytesPerSecond > 0) {
+        const chunkMs = Math.round((chunk.length / bytesPerSecond) * 1000);
+        if (chunkMs > 0) {
+          pendingPlaybackMs = Math.min(
+            pendingPlaybackMs + chunkMs,
+            PLAYBACK_MUTE_MS + 10_000,
+          );
+          setTimeout(() => {
+            pendingPlaybackMs = Math.max(0, pendingPlaybackMs - chunkMs);
+          }, chunkMs).unref?.();
+        }
+      }
+      if (playbackBackpressure) {
+        playbackQueue.push(chunk);
+        return;
+      }
       const ok = stdin.write(chunk);
       if (!ok) {
         playbackBackpressure = true;
-        stdin.once("drain", () => {
-          playbackBackpressure = false;
-        });
+        playbackQueue.push(chunk);
+        stdin.once("drain", flushPlaybackQueue);
       }
     } catch (error) {
       const err = error as NodeJS.ErrnoException;
@@ -131,18 +202,20 @@ export function createAlsaAudioBinding(session: RealtimeSession): AudioBinding {
   return {
     start() {
       if (!playback) {
-        playback = safeSpawn(
-          "aplay",
-          "aplay",
-          playbackArgs,
-          { stdio: ["pipe", "ignore", "inherit"] },
-        );
-        playbackBackpressure = false;
-        const playbackStdin = playback?.stdin;
-        if (playbackStdin) {
-          playbackStdin.setMaxListeners?.(0);
-          playbackStdin.on("error", (error: NodeJS.ErrnoException) => {
-            if (error?.code !== "EPIPE") {
+      playback = safeSpawn(
+        "aplay",
+        "aplay",
+        playbackArgs,
+        { stdio: ["pipe", "ignore", "inherit"] },
+      );
+      playbackBackpressure = false;
+      playbackQueue.length = 0;
+      pendingPlaybackMs = 0;
+      const playbackStdin = playback?.stdin;
+      if (playbackStdin) {
+        playbackStdin.setMaxListeners?.(0);
+        playbackStdin.on("error", (error: NodeJS.ErrnoException) => {
+          if (error?.code !== "EPIPE") {
               console.error("[alsa] playback stdin error:", error);
             }
           });
@@ -153,7 +226,7 @@ export function createAlsaAudioBinding(session: RealtimeSession): AudioBinding {
         listenerAttached = true;
       }
 
-      if (!capture) {
+      if (!capture && !CAPTURE_DISABLED) {
         capture = safeSpawn(
           "arecord",
           "arecord",
@@ -161,6 +234,9 @@ export function createAlsaAudioBinding(session: RealtimeSession): AudioBinding {
           { stdio: ["ignore", "pipe", "inherit"] },
         );
         capture?.stdout?.on("data", (chunk: Buffer) => {
+          if (Date.now() < muteCaptureUntil) {
+            return;
+          }
           try {
             session.sendAudio(bufferToArrayBuffer(chunk));
           } catch (error) {
@@ -183,6 +259,8 @@ export function createAlsaAudioBinding(session: RealtimeSession): AudioBinding {
       capture = null;
       playback = null;
       playbackBackpressure = false;
+      playbackQueue.length = 0;
+      pendingPlaybackMs = 0;
       if (listenerAttached) {
         if (typeof emitter.off === "function") {
           emitter.off("audio", audioHandler);
@@ -190,6 +268,15 @@ export function createAlsaAudioBinding(session: RealtimeSession): AudioBinding {
           emitter.removeListener("audio", audioHandler);
         }
         listenerAttached = false;
+      }
+    },
+    async waitForPlaybackIdle(maxWaitMs: number = 5_000) {
+      const start = Date.now();
+      while (pendingPlaybackMs > playbackLagFloorMs) {
+        if (Date.now() - start > maxWaitMs) {
+          break;
+        }
+        await new Promise((resolve) => setTimeout(resolve, 50));
       }
     },
   };

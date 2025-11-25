@@ -17,6 +17,13 @@ log() {
   echo "[$ts] $*" | tee -a "$LOG_FILE"
 }
 
+ensure_log_file() {
+  mkdir -p "$(dirname "${LOG_FILE}")"
+  touch "${LOG_FILE}"
+  chmod 644 "${LOG_FILE}" 2>/dev/null || true
+  chown "${RUN_USER}":"${RUN_USER}" "${LOG_FILE}" 2>/dev/null || true
+}
+
 load_env() {
   if [[ -f "${ROOT_DIR}/.env" ]]; then
     set -a
@@ -54,6 +61,9 @@ wait_for_network() {
 }
 
 ensure_lock() {
+  if [[ -e "${LOCK_FILE}" && ! -w "${LOCK_FILE}" ]]; then
+    rm -f "${LOCK_FILE}" 2>/dev/null || true
+  fi
   exec 9>"${LOCK_FILE}"
   if ! flock -n 9; then
     log "Another Coco session is already running; skipping this invocation."
@@ -68,7 +78,8 @@ run_session() {
   sentiment="${COCO_SENTIMENT_SUMMARY:-positive}"
 
   log "Starting scheduled Coco session (mode=${COCO_AGENT_MODE:-unset}, sentiment=${sentiment})."
-  if "${SESSION_CMD}" >> "${LOG_FILE}" 2>&1; then
+  export SKIP_AGENT_LOCK=1
+  if bash -lc "${SESSION_CMD}" >> "${LOG_FILE}" 2>&1; then
     status="success"
   else
     status="failed"
@@ -81,7 +92,7 @@ run_session() {
 }
 
 main() {
-  mkdir -p "$(dirname "${LOG_FILE}")"
+  ensure_log_file
   load_env
   ensure_lock
 
@@ -89,7 +100,8 @@ main() {
     log "flock not found; install util-linux."
     exit 1
   fi
-  if [[ ! -x "${SESSION_CMD}" ]]; then
+  local cmd_bin="${SESSION_CMD%% *}"
+  if ! command -v "${cmd_bin}" >/dev/null 2>&1; then
     log "Session command not executable or missing: ${SESSION_CMD}"
     exit 1
   fi

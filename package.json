@@ -5,7 +5,8 @@
   "scripts": {
     "start": "tsx src/runAgent.ts",
     "typecheck": "tsc --noEmit",
-    "test": "npm run typecheck"
+    "test": "npm run typecheck",
+    "test:mock-backend": "tsx tests/mock-backend-smoke.ts"
   },
   "keywords": [],
   "author": "",
@@ -14,7 +15,6 @@
     "@openai/agents": "^0.3.0",
     "@openai/agents-core": "^0.3.0",
     "@openai/agents-realtime": "^0.3.0",
-    "codex": "^0.2.3",
     "openai": "^6.8.1",
     "tsx": "^4.20.6",
     "zod": "^3.25.6"

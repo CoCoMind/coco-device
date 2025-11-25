@@ -7,6 +7,9 @@ import { ALSA_SAMPLE_RATE, createAlsaAudioBinding } from "./audioIO";
 
 export const REALTIME_MODEL =
   process.env.REALTIME_MODEL ?? "gpt-4o-mini-realtime-preview-2024-12-17";
+const TEXT_ONLY =
+  (process.env.OPENAI_OUTPUT_MODALITY ?? "").toLowerCase() === "text" ||
+  process.env.COCO_AUDIO_DISABLE === "1";
 
 const systemPrompt = `You are Coco, a warm, research-backed cognitive coach. Immediately run a single ~10-minute session:
 - 4–6 short activities, ~1–2 min each.
@@ -26,7 +29,10 @@ Sequence:
 For each step:
 - Introduce briefly (≤1 sentence), present the prompt/trial, pause to listen, then encourage.
 - If user says “skip” or seems tired, shorten remaining steps.
-Return metadata with each turn: {activity_id, category, domain, duration_min}.
+Do NOT say or read out any metadata (ids, categories, domains, durations). Keep spoken language natural and participant-facing only.
+- Give feedback that matches the participant’s answer: praise only when correct/on-track; if incomplete or off, gently guide or correct with one clear hint.
+- After the closing line, stop. Do not restart or begin a new session.
+- Avoid blanket praise; if you are unsure whether the participant was correct, ask a brief clarifying follow-up instead of saying “great job.”
 End with a single positive closing line.
 Start immediately on connect (do not wait for the user to speak).`;
 
@@ -35,16 +41,19 @@ type SayOptions = {
 };
 
 const INTRO_RESPONSE_WINDOW_MS = Number(
-  process.env.COCO_INTRO_RESPONSE_WINDOW_MS ?? "5000",
+  process.env.COCO_INTRO_RESPONSE_WINDOW_MS ?? "8000",
 );
 const MIN_LISTEN_WINDOW_MS = Number(
-  process.env.COCO_MIN_LISTEN_WINDOW_MS ?? "15000",
+  process.env.COCO_MIN_LISTEN_WINDOW_MS ?? "12000",
 );
 const MAX_LISTEN_WINDOW_MS = Number(
-  process.env.COCO_MAX_LISTEN_WINDOW_MS ?? "45000",
+  process.env.COCO_MAX_LISTEN_WINDOW_MS ?? "20000",
 );
 const FINAL_RESPONSE_WINDOW_MS = Number(
-  process.env.COCO_FINAL_RESPONSE_WINDOW_MS ?? "4000",
+  process.env.COCO_FINAL_RESPONSE_WINDOW_MS ?? "8000",
+);
+const LISTEN_GRACE_MS = Number(
+  process.env.COCO_LISTEN_GRACE_MS ?? "2000",
 );
 
 type SentimentSnapshot = {
@@ -127,15 +136,99 @@ function clampParticipantWindow(durationMin?: number) {
   );
 }
 
+type ResponseTracker = {
+  waitForIdle: (timeoutMs?: number) => Promise<void>;
+  cancelActive: () => void;
+  trackResponse: (id: string) => void;
+};
+
+function createResponseTracker(session: RealtimeSession): ResponseTracker {
+  let active = 0;
+  const waiters: Array<{
+    resolve: () => void;
+    reject: (err: Error) => void;
+    timer: NodeJS.Timeout;
+  }> = [];
+
+  const s = session as any;
+  s.on("response.created", () => {
+    active += 1;
+  });
+  const clear = () => {
+    active = Math.max(0, active - 1);
+    if (active === 0) {
+      while (waiters.length) {
+        const waiter = waiters.shift();
+        if (waiter) {
+          clearTimeout(waiter.timer);
+          waiter.resolve();
+        }
+      }
+    }
+  };
+  s.on("response.done", clear);
+  s.on("response.failed", clear);
+  s.on("response.cancelled", clear);
+  s.on("response.output_audio.done", clear);
+  s.on("error", clear);
+
+  async function waitForIdle(timeoutMs: number = 10_000) {
+    if (active === 0) return;
+    await new Promise<void>((resolve, reject) => {
+      const onTimeout = () => {
+        reject(
+          new Error("Timed out waiting for previous response to finish"),
+        );
+      };
+      const timer = setTimeout(onTimeout, timeoutMs);
+      (timer as NodeJS.Timeout).unref?.();
+      waiters.push({ resolve, reject, timer });
+    });
+  }
+
+  const cancelActive = () => {
+    if (active === 0) {
+      return;
+    }
+    try {
+      session.transport.sendEvent?.({ type: "response.cancel" });
+    } catch (error) {
+      console.warn("[realtime] failed to cancel active response:", error);
+    }
+  };
+
+  const trackResponse = (id: string) => {
+    if (!id) return;
+    active += 1;
+  };
+
+  return { waitForIdle, cancelActive, trackResponse };
+}
+
 function waitForAgentTurn(
   session: RealtimeSession,
-  timeoutMs: number = 60000,
+  timeoutMs: number = 90000,
 ): Promise<void> {
+  const s = session as any;
   return new Promise((resolve, reject) => {
-    const onEnd = () => {
-      cleanup();
-      console.debug("[realtime] agent turn completed");
-      resolve();
+    const expectsAudio = !TEXT_ONLY;
+    let responseDone = false;
+    let audioDone = !expectsAudio;
+
+    const tryFinish = () => {
+      if (responseDone && audioDone) {
+        cleanup();
+        console.info("[realtime] agent turn completed");
+        resolve();
+      }
+    };
+    const onResponseDone = () => {
+      responseDone = true;
+      tryFinish();
+    };
+    const onAudioDone = () => {
+      audioDone = true;
+      tryFinish();
     };
     const onError = (error: unknown) => {
       cleanup();
@@ -152,22 +245,37 @@ function waitForAgentTurn(
     };
     const onTimeout = () => {
       cleanup();
-      reject(new Error("Timed out waiting for agent response"));
+      reject(new Error("Timed out waiting for agent response to finish"));
     };
     const timer = setTimeout(onTimeout, timeoutMs);
     (timer as NodeJS.Timeout).unref?.();
     const cleanup = () => {
       clearTimeout(timer);
-      session.off("agent_end", onEnd);
-      session.off("error", onError);
+      s.off?.("response.done", onResponseDone);
+      s.off?.("response.failed", onError);
+      s.off?.("response.cancelled", onError);
+      if (expectsAudio) {
+        s.off?.("audio_done", onAudioDone);
+        s.off?.("response.output_audio.done", onAudioDone);
+      }
+      s.off?.("response.failed", onError);
+      s.off?.("response.cancelled", onError);
+      s.off?.("error", onError);
     };
-    session.once("agent_end", onEnd);
-    session.once("error", onError);
+    s.once?.("response.done", onResponseDone);
+    s.once?.("response.failed", onError);
+    s.once?.("response.cancelled", onError);
+    if (expectsAudio) {
+      s.once?.("audio_done", onAudioDone);
+      s.once?.("response.output_audio.done", onAudioDone);
+    }
+    s.once?.("error", onError);
   });
 }
 
 async function sessionSay(
   session: RealtimeSession,
+  tracker: ResponseTracker,
   text: string,
   options?: SayOptions,
 ) {
@@ -175,26 +283,101 @@ async function sessionSay(
   if (!trimmed) {
     return;
   }
-  const waitPromise = waitForAgentTurn(
-    session,
-    options?.timeoutMs ?? 60000,
-  );
-  session.transport.sendEvent({
-    type: "response.create",
-    response: {
-      instructions: [
-        "Speak directly to the participant in a warm, upbeat tone. Keep it concise and supportive.",
-        `Guidance: ${trimmed}`,
-      ].join("\n"),
-    },
-  });
-  await waitPromise;
-  clearTransportAudioState(session);
+  console.info("[realtime] prompting agent:", trimmed);
+
+  const awaitResponse = (responseId: string, timeoutMs: number) =>
+    new Promise<void>((resolve, reject) => {
+      const s = session as any;
+      const onDone = (event?: { response?: { id?: string } }) => {
+        if (responseId && event?.response?.id && event.response.id !== responseId) {
+          return;
+        }
+        cleanup();
+        resolve();
+      };
+      const onError = (error: unknown) => {
+        cleanup();
+        const normalized =
+          error instanceof Error
+            ? error
+            : new Error(
+                typeof error === "object"
+                  ? JSON.stringify(error)
+                  : String(error ?? "unknown"),
+              );
+        reject(normalized);
+      };
+      const timer = setTimeout(
+        () => reject(new Error("Timed out waiting for response completion")),
+        timeoutMs,
+      );
+      (timer as NodeJS.Timeout).unref?.();
+      const cleanup = () => {
+        clearTimeout(timer);
+        s.off?.("response.done", onDone);
+        s.off?.("response.failed", onError);
+        s.off?.("response.cancelled", onError);
+        s.off?.("response.output_audio.done", onDone);
+        s.off?.("error", onError);
+      };
+      s.on?.("response.done", onDone);
+      s.on?.("response.failed", onError);
+      s.on?.("response.cancelled", onError);
+      s.on?.("response.output_audio.done", onDone);
+      s.on?.("error", onError);
+    });
+
+  const waitForCreated = () =>
+    new Promise<string>((resolve) => {
+      const s = session as any;
+      const onCreated = (event?: { response?: { id?: string } }) => {
+        const id = event?.response?.id;
+        s.off?.("response.created", onCreated);
+        resolve(id ?? "");
+      };
+      s.on?.("response.created", onCreated);
+    });
+
+  let attempt = 0;
+  while (attempt < 2) {
+    await tracker.waitForIdle();
+    tracker.cancelActive();
+    const createdPromise = waitForCreated();
+    session.transport.sendEvent({
+      type: "response.create",
+      response: {
+        instructions: [
+          "Speak directly to the participant in a warm, upbeat tone. Keep it concise and supportive.",
+          "Do not mention internal metadata (ids, categories, domains); only share natural, human-friendly wording.",
+          "If you are repeating yourself because you did not hear the participant, briefly note that you are checking in, then pause.",
+          "Do not enumerate or read any labels like 'category', 'domain', or 'activity id'.",
+          "Give feedback that matches their answer; avoid saying 'great job' unless they were clearly correct/on-track. Offer a gentle hint or correction when needed.",
+          "When the session is done, do not start another; end after the closing line.",
+          "If unsure whether they were correct, ask a short follow-up instead of praising.",
+          `Guidance: ${trimmed}`,
+        ].join("\n"),
+      },
+    });
+    try {
+      const responseId = await createdPromise;
+      tracker.trackResponse(responseId);
+      await awaitResponse(responseId, options?.timeoutMs ?? 90000);
+      break;
+    } catch (error) {
+      console.warn("[realtime] response attempt failed, retrying once:", error);
+      clearTransportAudioState(session);
+      tracker.waitForIdle().catch(() => {});
+      attempt += 1;
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      continue;
+    }
+  }
 }
 
 async function waitForParticipantExchange(
   session: RealtimeSession,
   timeoutMs: number,
+  graceMs: number = 0,
 ) {
   if (timeoutMs <= 0) {
     return false;
@@ -215,13 +398,26 @@ async function waitForParticipantExchange(
       );
       resolve(false);
     };
-    const timer = setTimeout(onTimeout, timeoutMs);
-    (timer as NodeJS.Timeout).unref?.();
+    let timer: NodeJS.Timeout | null = null;
+    const startTimer = () => {
+      timer = setTimeout(onTimeout, timeoutMs);
+      (timer as NodeJS.Timeout).unref?.();
+    };
+    if (graceMs > 0) {
+      setTimeout(startTimer, graceMs);
+    } else {
+      startTimer();
+    }
     const cleanup = () => {
-      clearTimeout(timer);
+      if (timer) {
+        clearTimeout(timer);
+      }
       session.off("history_added", onHistoryAdded);
     };
     session.on("history_added", onHistoryAdded);
+    console.info(
+      `[realtime] listening for participant (window=${timeoutMs}ms, grace=${graceMs}ms)`,
+    );
   });
 }
 
@@ -231,7 +427,7 @@ function clearTransportAudioState(session: RealtimeSession) {
   };
   if (typeof transport?.interrupt === "function") {
     try {
-      transport.interrupt(false);
+      transport.interrupt(true);
     } catch (error) {
       console.debug("[realtime] transport interrupt noop:", error);
     }
@@ -247,35 +443,74 @@ export function createAgent() {
 }
 
 export async function startSession(ephemeralKey: string) {
+  async function handleNoInput(context: "intro" | "step") {
+    const message =
+      context === "intro"
+        ? "I didn't hear you yet, but you can jump in at any time. Let's keep going."
+        : "I didn't hear you that round, but I'll keep us moving. Feel free to chime in whenever you're ready.";
+    await sessionSay(session, responseTracker, message);
+    await waitForPlaybackIdle();
+  }
+
   const agent = createAgent();
   const session = new RealtimeSession(agent, {
     model: REALTIME_MODEL,
     transport: "websocket",
-    config: {
-      audio: {
-        input: {
-          format: { type: "audio/pcm", rate: ALSA_SAMPLE_RATE },
+    config: TEXT_ONLY
+      ? { modalities: ["text"] }
+      : {
+          audio: {
+            input: {
+              format: { type: "audio/pcm", rate: ALSA_SAMPLE_RATE },
+            },
+            output: {
+              format: { type: "audio/pcm", rate: ALSA_SAMPLE_RATE },
+            },
+          },
         },
-        output: {
-          format: { type: "audio/pcm", rate: ALSA_SAMPLE_RATE },
-        },
-      },
-    },
-    // voice/audio can also be set via a session.update after connect
   });
-  const audioBinding = createAlsaAudioBinding(session);
+  const audioBinding = TEXT_ONLY
+    ? { start() {}, stop() {} }
+    : createAlsaAudioBinding(session);
+  const waitForPlaybackIdle = async () => {
+    if (typeof audioBinding.waitForPlaybackIdle === "function") {
+      await audioBinding.waitForPlaybackIdle();
+    }
+  };
+  const responseTracker = createResponseTracker(session);
   let historyListener: ((item: unknown) => void) | null = null;
 
   try {
     const participantUtterances: string[] = [];
+    let stopRequested = false;
     historyListener = (item: unknown) => {
       const candidate = item as { type?: string; role?: string } | undefined;
-      if (!candidate || candidate.type !== "message" || candidate.role !== "user") {
+      if (!candidate || candidate.type !== "message") {
         return;
       }
       const text = extractTextFromMessage(candidate);
-      if (text) {
+      if (!text) return;
+      if (candidate.role === "user") {
         participantUtterances.push(text);
+        console.info(`[realtime] participant: ${text}`);
+        const normalized = text.toLowerCase();
+        if (
+          normalized.includes("stop session") ||
+          normalized.includes("end session") ||
+          normalized === "stop" ||
+          normalized.startsWith("stop ") ||
+          normalized.startsWith("end ") ||
+          normalized.includes("thank you") ||
+          normalized.includes("thanks") ||
+          normalized.includes("it's over") ||
+          normalized.includes("its over") ||
+          normalized.includes("that's all") ||
+          normalized.includes("bye")
+        ) {
+          stopRequested = true;
+        }
+      } else if (candidate.role === "assistant") {
+        console.info(`[realtime] agent said: ${text}`);
       }
     };
 
@@ -316,20 +551,55 @@ export async function startSession(ephemeralKey: string) {
     // 2) Ask the agent to run it step-by-step with voice output
     await sessionSay(
       session,
+      responseTracker,
       "Let's begin. I'll guide you through a brief set of activities.",
     );
+    await waitForPlaybackIdle();
 
-    await waitForParticipantExchange(session, INTRO_RESPONSE_WINDOW_MS);
+    const heardIntro = await waitForParticipantExchange(
+      session,
+      INTRO_RESPONSE_WINDOW_MS,
+      LISTEN_GRACE_MS,
+    );
+    if (!heardIntro) {
+      await handleNoInput("intro");
+    }
+    if (stopRequested) {
+      await sessionSay(
+        session,
+        responseTracker,
+        "Okay, I'll stop here. Thank you for spending time with me today.",
+      );
+      await waitForPlaybackIdle();
+      return session;
+    }
 
     let turnCount = 0;
 
     for (const step of plan) {
       const line =
         step.prompt ?? step.instructions ?? (step.trials?.[0] ?? "");
-      await sessionSay(session, line);
+      await sessionSay(session, responseTracker, line);
+      await waitForPlaybackIdle();
       turnCount += 1;
       const listenWindowMs = clampParticipantWindow(step.duration_min);
-      await waitForParticipantExchange(session, listenWindowMs);
+      const participantResponded = await waitForParticipantExchange(
+        session,
+        listenWindowMs,
+        LISTEN_GRACE_MS,
+      );
+      if (!participantResponded) {
+        await handleNoInput("step");
+      }
+      if (stopRequested) {
+        await sessionSay(
+          session,
+          responseTracker,
+          "Got it. I'll wrap up here. Thank you for sharing your time.",
+        );
+        await waitForPlaybackIdle();
+        break;
+      }
       // (The agent’s default turn-taking now waits for the participant before advancing.)
       // telemetry tool call skipped in standalone runner
 
@@ -337,9 +607,12 @@ export async function startSession(ephemeralKey: string) {
 
     await sessionSay(
       session,
+      responseTracker,
       "Great work today. Take a breath and enjoy the rest of your day.",
     );
+    await waitForPlaybackIdle();
     await waitForParticipantExchange(session, FINAL_RESPONSE_WINDOW_MS);
+    stopRequested = true;
     const tsEnd = new Date();
     const totalDurationSec = Math.round(
       (tsEnd.getTime() - tsStart.getTime()) / 1000
@@ -349,7 +622,11 @@ export async function startSession(ephemeralKey: string) {
         summary: "no_input",
         score: 0,
       };
-    await sendSessionSummary({
+    const transcriptNote = participantUtterances
+      .map((u, idx) => `${idx + 1}: ${u}`)
+      .join(" | ")
+      .slice(0, 1800);
+    const summaryPayload = {
       session_id: sessionId,
       plan_id: planId,
       user_external_id: userExternalId,
@@ -362,8 +639,13 @@ export async function startSession(ephemeralKey: string) {
       turn_count: turnCount,
       sentiment_summary: sentiment?.summary,
       sentiment_score: sentiment?.score,
-      notes: process.env.COCO_SESSION_NOTES,
-    });
+      notes:
+        process.env.COCO_SESSION_NOTES ??
+        (transcriptNote ? `transcript: ${transcriptNote}` : undefined),
+    };
+    console.info("[backend] sending session summary", summaryPayload);
+    await sendSessionSummary(summaryPayload);
+    console.info("[backend] session summary sent");
     return session;
   } finally {
     audioBinding.stop();

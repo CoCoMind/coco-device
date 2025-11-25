@@ -26,6 +26,7 @@ git clone "${REPO_URL}" coco-device
 cd coco-device
 sudo ./install.sh --local
 ```
+Replace `REPO_URL`/`BRANCH` with `https://github.com/jh2k2/coco-hardware-scripts.git` and your target ref if not using the one-liner.
 
 ## Configure env
 ```bash
@@ -47,7 +48,8 @@ priority=1
 ## Start/enable services
 ```bash
 sudo systemctl daemon-reload
-sudo systemctl enable --now coco-agent.service coco-agent-scheduler.timer coco-heartbeat.timer wifi-provision.service
+sudo systemctl enable --now coco-agent-scheduler.timer coco-heartbeat.timer wifi-provision.service
+# (coco-agent.service is available for manual runs if desired)
 ```
 
 ## Update (pull latest)
@@ -60,4 +62,4 @@ sudo /usr/local/bin/coco-update.sh
 - Heartbeat: /var/log/coco/heartbeat.log
 - Wi-Fi provisioning: /var/log/coco/wifi-provision.log
 - Last session timestamp: /var/lib/coco/last_session_at
-```
+- Wi-Fi provision state: /var/lib/wifi-provision

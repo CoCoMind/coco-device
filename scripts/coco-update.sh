@@ -20,6 +20,13 @@ sudo -u "$RUN_USER" git fetch --all --tags
 sudo -u "$RUN_USER" git reset --hard "origin/${target_ref}" || sudo -u "$RUN_USER" git reset --hard "${target_ref}"
 log "Installing npm dependencies"
 sudo -u "$RUN_USER" npm install
+if command -v node >/dev/null 2>&1 && [[ -f "${INSTALL_DIR}/package.json" ]]; then
+  version=$(cd "${INSTALL_DIR}" && node -p "require('./package.json').version" 2>/dev/null || true)
+  if [[ -n "${version:-}" ]]; then
+    echo -n "$version" >/etc/coco-agent-version
+    log "Updated /etc/coco-agent-version to ${version}"
+  fi
+fi
 log "Restarting services"
 systemctl restart coco-agent.service
 systemctl restart coco-agent-scheduler.timer

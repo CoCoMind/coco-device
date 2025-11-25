@@ -6,7 +6,14 @@ set -euo pipefail
 
 LOG_FILE="/var/log/coco/wifi-provision.log"
 STATE_DIR="/var/lib/wifi-provision"
+USB_SEARCH_PATHS_RAW="${USB_SEARCH_PATHS_OVERRIDE:-${USB_SEARCH_PATHS:-}}"
 USB_SEARCH_PATHS=(/media /run/media /mnt)
+# Allow override via COCO_USB_SEARCH_PATHS, USB_SEARCH_PATHS (colon-separated) or USB_SEARCH_PATHS_OVERRIDE.
+if [[ -n "${COCO_USB_SEARCH_PATHS:-}" ]]; then
+  IFS=':' read -r -a USB_SEARCH_PATHS <<<"${COCO_USB_SEARCH_PATHS}"
+elif [[ -n "${USB_SEARCH_PATHS_RAW:-}" ]]; then
+  IFS=':' read -r -a USB_SEARCH_PATHS <<<"${USB_SEARCH_PATHS_RAW}"
+fi
 WLAN_IFACE="${WLAN_IFACE:-wlan0}"
 LOOP_DELAY_SECONDS="${LOOP_DELAY_SECONDS:-15}"
 CONNECT_TIMEOUT_SECONDS="${CONNECT_TIMEOUT_SECONDS:-45}"
@@ -180,10 +187,17 @@ apply_credentials() {
     fi
   fi
 
-  network_id="$(wpa_cli -i "$WLAN_IFACE" add_network | tail -n1)"
+  network_id="$(wpa_cli -i "$WLAN_IFACE" add_network 2>/dev/null | tail -n1 || true)"
   if [[ -z "$network_id" ]]; then
     log "Failed to allocate new network via wpa_cli"
-    [[ "$disabled_existing" == true && -n "$existing_id" ]] && wpa_cli -i "$WLAN_IFACE" enable_network "$existing_id" >/dev/null 2>&1
+    failed_name="${conf_file}${FAILED_SUFFIX}-$(date +%Y%m%d%H%M%S)"
+    if mv "$conf_file" "$failed_name"; then
+      log "Renamed $conf_file to $failed_name to prevent repeated attempts"
+    fi
+    if [[ "$disabled_existing" == true && -n "$existing_id" ]]; then
+      wpa_cli -i "$WLAN_IFACE" enable_network "$existing_id" >/dev/null 2>&1 || true
+      wpa_cli -i "$WLAN_IFACE" select_network "$existing_id" >/dev/null 2>&1 || true
+    fi
     return 1
   fi
 

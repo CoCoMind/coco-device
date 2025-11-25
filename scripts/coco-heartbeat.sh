@@ -25,6 +25,9 @@ ensure_log_file() {
 }
 
 load_env() {
+  if [ "${SKIP_ENV_FILE:-0}" = "1" ]; then
+    return 1
+  fi
   local loaded=1
   for file in "${ENV_FILES[@]}"; do
     if [ -f "$file" ]; then
@@ -90,10 +93,13 @@ measure_latency() {
   if [ "$CONNECTIVITY" = "offline" ]; then
     return
   fi
+  if [ "${COCO_SKIP_LATENCY:-}" = "1" ]; then
+    return
+  fi
   local total
   total=$(curl -o /dev/null -s -w "%{time_total}" --max-time 5 https://www.google.com/generate_204 2>/dev/null)
   if [ -n "$total" ]; then
-    LATENCY_MS=$(python3 - <<'PY'
+    LATENCY_MS=$(python3 - "$total" <<'PY'
 import sys
 val = sys.argv[1]
 try:
@@ -102,7 +108,7 @@ try:
 except Exception:
     pass
 PY
-"$total")
+)
   fi
 }
 
@@ -111,6 +117,7 @@ read_last_session() {
     LAST_SESSION_AT="$(tr -d '\n' < "$LAST_SESSION_FILE")"
   else
     LAST_SESSION_AT=""
+    log "last_session_at missing"
   fi
 }
 
@@ -119,6 +126,9 @@ map_agent_status() {
   state=$(systemctl is-active coco-agent.service 2>/dev/null || true)
   case "$state" in
     active)
+      AGENT_STATUS="ok"
+      ;;
+    inactive)
       AGENT_STATUS="ok"
       ;;
     activating|deactivating)

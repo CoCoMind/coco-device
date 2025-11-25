@@ -65,7 +65,7 @@ install_units() {
   sed -i "s/^User=.*/User=${RUN_USER}/" /etc/systemd/system/coco-agent.service /etc/systemd/system/coco-agent-scheduler.service /etc/systemd/system/coco-heartbeat.service
   sed -i "s/^Group=.*/Group=${RUN_USER}/" /etc/systemd/system/coco-heartbeat.service || true
   systemctl daemon-reload
-  systemctl enable coco-agent.service coco-agent-scheduler.timer coco-heartbeat.timer wifi-provision.service
+  systemctl enable coco-agent-scheduler.timer coco-heartbeat.timer wifi-provision.service
 }
 
 prepare_dirs() {
@@ -73,6 +73,19 @@ prepare_dirs() {
   mkdir -p /var/lib/coco
   mkdir -p /var/log/coco
   chown -R "${RUN_USER}:${RUN_USER}" /var/lib/coco /var/log/coco || true
+}
+
+write_agent_version() {
+  local version
+  if command -v node >/dev/null 2>&1 && [[ -f "${INSTALL_DIR}/package.json" ]]; then
+    version=$(cd "${INSTALL_DIR}" && node -p "require('./package.json').version" 2>/dev/null || true)
+  fi
+  if [[ -n "${version:-}" ]]; then
+    echo -n "$version" >/etc/coco-agent-version
+    log "Wrote agent version ${version} to /etc/coco-agent-version"
+  else
+    log "Could not determine agent version; /etc/coco-agent-version not written"
+  fi
 }
 
 install_node_modules() {
@@ -86,6 +99,7 @@ main() {
   install_scripts
   install_units
   prepare_dirs
+  write_agent_version
   install_node_modules
   log "DONE – add your .env at ${INSTALL_DIR}/.env (see .env.example)."
 }

@@ -3,7 +3,7 @@
 ## Device Overview
 - Purpose: run the Coco cognitive coaching agent with realtime speech I/O, collect sentiment and session metadata, and send structured summaries to the backend.
 - Identity: configured via `.env` (`COCO_USER_EXTERNAL_ID`, `COCO_PARTICIPANT_ID`, `COCO_DEVICE_ID`) and backend URL/token (`COCO_BACKEND_URL`, `INGEST_SERVICE_TOKEN`) at `~/coco-device/.env`.
-- Agent entrypoint: `/usr/local/bin/coco-native-agent-boot.sh` → `npm start` in `~/coco-device` (`COCO_AGENT_MODE` defaults to `mock` unless overridden).
+- Agent entrypoint: `/usr/local/bin/coco-native-agent-boot.sh` → `npm start` in `~/coco-device` (`COCO_AGENT_MODE` defaults to `mock` unless overridden). Typically invoked by the scheduler; the service unit can be started manually for ad-hoc runs.
 
 ## Boot & Autostart
 - `coco-agent.service` (`/etc/systemd/system/coco-agent.service`) starts the agent on boot after network-online; restarts on failure with 5s backoff.
@@ -19,11 +19,11 @@
 - UX: logs to `/var/log/coco/wifi-provision.log`; announces USB presence/no-conf/connect/fail via `espeak`→`aplay` (or `pico2wave`→`aplay`) on `AUDIO_DEVICE` (default `plughw:3,0`); logs if TTS unavailable. Stores last SSID in `/var/lib/wifi-provision/last-connected-ssid`.
 
 ## Scheduled Session Runner
-- Timer → oneshot service: `coco-agent-scheduler.timer` (09:00, 15:00, persistent) triggers `coco-agent-scheduler.service` which runs `scripts/run-scheduled-session.sh` as the install user.
+- Timer → oneshot service: `coco-agent-scheduler.timer` (09:00, 15:00, persistent) triggers `coco-agent-scheduler.service` which runs `scripts/run-scheduled-session.sh` as the install user. The dedicated `coco-agent.service` exists for manual/ad-hoc runs; it is not enabled by default.
 - Concurrency: `flock` lock at `/tmp/coco-session-runner.lock` prevents overlaps.
 - Network gating: probes `https://www.google.com/generate_204`, falls back to `ping 1.1.1.1`; retries up to `MAX_NETWORK_ATTEMPTS` (default 12) with `NETWORK_RETRY_SECONDS` (default 300s). Skips session if still offline.
 - Command: `${SESSION_CMD:-/usr/local/bin/coco-native-agent-boot.sh}` (overrideable); loads `.env` if present.
-- Logging: appends to `/var/log/coco/session-scheduler.log` with start/end timestamps, status, duration_seconds, sentiment_summary snapshot; includes agent stdout/stderr.
+- Logging: appends to `/var/log/coco/session-scheduler.log` with start/end timestamps, status, duration_seconds, sentiment_summary snapshot; includes agent stdout/stderr. Agent service logs to `/var/log/coco/agent.log`.
 
 ## Agent Runtime (Realtime path)
 - Entrypoint `src/runAgent.ts` → `startSession` (`src/agent.ts`); default model `gpt-4o-mini-realtime-preview-2024-12-17` unless `REALTIME_MODEL` set.
@@ -51,7 +51,7 @@
 - Config sources: `.env` (`COCO_DEVICE_ID`, `COCO_BACKEND_URL`, `INGEST_SERVICE_TOKEN`) and `/etc/coco-agent-version` (string version). Missing fields log “missing config” and still emit a degraded/crashed heartbeat; POST is skipped only if URL/token absent.
 - Connectivity detection: `wifi` if `wlan0` has IP (RSSI via `iw dev wlan0 link`), `lte` if `wwan0`/`usb0` has IP, else `offline`; latency via `curl https://www.google.com/generate_204` (ms rounded).
 - Agent status mapping: `systemctl is-active coco-agent.service` → `ok`/`degraded`/`crashed` per active/activating|deactivating/failed/other.
-- State files: `/var/lib/coco/last_session_at` (updated by scheduler), `/var/log/coco/heartbeat.log` (install user, 644), `/etc/coco-agent-version` (e.g., `0.3.2`).
+- State files: `/var/lib/coco/last_session_at` (updated by scheduler), `/var/lib/wifi-provision/*` (Wi-Fi state), `/var/log/coco/heartbeat.log` (install user, 644), `/etc/coco-agent-version` (written by install/update).
 - Systemd: `coco-heartbeat.service` oneshot as install user; `coco-heartbeat.timer` `OnBootSec=1min`, `OnUnitActiveSec=5min`, `RandomizedDelaySec=60`, `Persistent=true`.
 
 ## Configuration Surface (env)

@@ -276,6 +276,13 @@ async function speakLine(text: string, label: string) {
 }
 
 async function captureTypedResponse(): Promise<CaptureResult> {
+  const autoReply =
+    process.env.COCO_MOCK_AUTO_REPLY ?? process.env.COCO_MOCK_AUTO_INPUT;
+  if (autoReply !== undefined) {
+    const text = autoReply === "" ? "ok" : autoReply;
+    console.log(`[mock-agent] (auto-reply) ${text}`);
+    return { text, durationMs: 0 };
+  }
   const rl = readline.createInterface({ input, output });
   return new Promise<CaptureResult>((resolve) => {
     rl.question(`${TEXT_FALLBACK_PROMPT} `, (answer) => {

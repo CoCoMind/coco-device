@@ -5,11 +5,13 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-User=pi
-WorkingDirectory=%h/coco-device
+User=jerryhsieh2002
+WorkingDirectory=/home/jerryhsieh2002/coco-device
 ExecStart=/usr/local/bin/coco-native-agent-boot.sh
 Restart=on-failure
 RestartSec=5
+StandardOutput=append:/var/log/coco/agent.log
+StandardError=append:/var/log/coco/agent.log
 
 [Install]
 WantedBy=multi-user.target
