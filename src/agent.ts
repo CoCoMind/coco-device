@@ -2,8 +2,9 @@ import { RealtimeAgent, RealtimeSession } from "@openai/agents/realtime";
 import OpenAI from "openai";
 import { Activity, buildPlan } from "./planner";
 import { createSessionIdentifiers, sendSessionSummary } from "./backend";
-import { tools } from "./tools";
+import { tools, setEndSessionCallback, clearEndSessionCallback } from "./tools";
 import { ALSA_SAMPLE_RATE, createAlsaAudioBinding } from "./audioIO";
+import log from "./logger";
 
 export const REALTIME_MODEL =
   process.env.REALTIME_MODEL ?? "gpt-4o-mini-realtime-preview-2024-12-17";
@@ -28,13 +29,17 @@ Sequence:
 
 For each step:
 - Introduce briefly (≤1 sentence), present the prompt/trial, pause to listen, then encourage.
-- If user says “skip” or seems tired, shorten remaining steps.
+- If user says "skip" or seems tired, shorten remaining steps.
 Do NOT say or read out any metadata (ids, categories, domains, durations). Keep spoken language natural and participant-facing only.
-- Give feedback that matches the participant’s answer: praise only when correct/on-track; if incomplete or off, gently guide or correct with one clear hint.
+- Give feedback that matches the participant's answer: praise only when correct/on-track; if incomplete or off, gently guide or correct with one clear hint.
 - After the closing line, stop. Do not restart or begin a new session.
-- Avoid blanket praise; if you are unsure whether the participant was correct, ask a brief clarifying follow-up instead of saying “great job.”
+- Avoid blanket praise; if you are unsure whether the participant was correct, ask a brief clarifying follow-up instead of saying "great job."
 End with a single positive closing line.
-Start immediately on connect (do not wait for the user to speak).`;
+Start immediately on connect (do not wait for the user to speak).
+
+IMPORTANT: If the participant says "stop session", "end session", "goodbye", "I'm done", "that's all", "stop", or any similar phrase indicating they want to end early:
+1. Say a brief, warm goodbye (e.g., "Thanks for spending time with me today. Take care!")
+2. Then call the end_session tool to close the session gracefully.`;
 
 type SayOptions = {
   timeoutMs?: number;
@@ -115,22 +120,22 @@ async function scoreSentimentFromTranscript(
   utterances: string[],
 ): Promise<SentimentSnapshot | null> {
   if (!utterances.length) {
+    log.debug("sentiment", "No utterances to analyze");
     return null;
   }
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) {
-    console.warn("[sentiment] OPENAI_API_KEY missing; skipping sentiment scoring.");
+    log.warn("sentiment", "OPENAI_API_KEY missing; skipping sentiment scoring");
     return null;
   }
   const client = new OpenAI({ apiKey });
   const fullTranscript = utterances.join("\n");
   const transcript = fullTranscript.slice(0, 4000);
   if (fullTranscript.length > 4000) {
-    console.warn(
-      `[sentiment] Transcript truncated from ${fullTranscript.length} to 4000 chars for sentiment analysis`,
-    );
+    log.warn("sentiment", `Transcript truncated from ${fullTranscript.length} to 4000 chars`);
   }
   try {
+    log.debug("sentiment", `Analyzing ${utterances.length} utterances (${transcript.length} chars)`);
     const response = await client.responses.create({
       model: process.env.COCO_SENTIMENT_MODEL ?? "gpt-4o-mini",
       input: [
@@ -145,11 +150,12 @@ async function scoreSentimentFromTranscript(
     const raw = (response.output_text ?? "").trim();
     const parsed = parseSentimentJson(raw);
     if (parsed) {
+      log.info("sentiment", `Analysis complete: ${parsed.summary} (score: ${parsed.score})`);
       return parsed;
     }
-    console.warn("[sentiment] Unexpected sentiment response; raw output:", raw);
+    log.warn("sentiment", "Unexpected sentiment response", { raw });
   } catch (error) {
-    console.error("[sentiment] Failed to score sentiment:", error);
+    log.error("sentiment", "Failed to score sentiment", error);
   }
   return null;
 }
@@ -184,8 +190,10 @@ export function createResponseTracker(session: RealtimeSession): ResponseTracker
     if (id && trackedIds.has(id)) {
       trackedIds.delete(id);
       active = Math.max(0, active - 1);
+      log.debug("tracker", `Response ${id} completed, active=${active}`);
     } else if (!id && active > 0) {
       active = Math.max(0, active - 1);
+      log.debug("tracker", `Response cleared (no id), active=${active}`);
     }
     if (active === 0) {
       while (waiters.length) {
@@ -222,9 +230,10 @@ export function createResponseTracker(session: RealtimeSession): ResponseTracker
       return;
     }
     try {
+      log.debug("tracker", "Cancelling active response");
       session.transport.sendEvent?.({ type: "response.cancel" });
     } catch (error) {
-      console.warn("[realtime] failed to cancel active response:", error);
+      log.warn("tracker", "Failed to cancel active response", error);
     }
   };
 
@@ -251,7 +260,7 @@ function waitForAgentTurn(
     const tryFinish = () => {
       if (responseDone && audioDone) {
         cleanup();
-        console.info("[realtime] agent turn completed");
+        log.debug("agent", "Agent turn completed");
         resolve();
       }
     };
@@ -273,7 +282,7 @@ function waitForAgentTurn(
                 ? JSON.stringify(error)
                 : String(error ?? "unknown"),
             );
-      console.error("[realtime] session error:", normalized);
+      log.error("agent", "Session error", normalized);
       reject(normalized);
     };
     const onTimeout = () => {
@@ -314,7 +323,7 @@ async function sessionSay(
   if (!trimmed) {
     return;
   }
-  console.info("[realtime] prompting agent:", trimmed);
+  log.session(`Agent prompt: "${trimmed.slice(0, 80)}${trimmed.length > 80 ? "..." : ""}"`);
 
   const awaitResponse = (responseId: string, timeoutMs: number) =>
     new Promise<void>((resolve, reject) => {
@@ -378,6 +387,7 @@ async function sessionSay(
     // Register listener BEFORE sending event to avoid race condition
     const createdPromise = waitForCreated();
     await Promise.resolve(); // Ensure listener is attached before sending
+    log.debug("agent", "Sending response.create event");
     session.transport.sendEvent({
       type: "response.create",
       response: {
@@ -393,6 +403,7 @@ async function sessionSay(
         ].join("\n"),
       },
     });
+    log.debug("agent", "response.create event sent");
     try {
       const responseId = await createdPromise;
       tracker.trackResponse(responseId);
@@ -401,18 +412,19 @@ async function sessionSay(
     } catch (error) {
       lastError =
         error instanceof Error ? error : new Error(String(error ?? "unknown"));
-      console.warn("[realtime] response attempt failed, retrying once:", error);
+      log.warn("agent", `Response attempt ${attempt} failed, retrying...`, error);
       clearTransportAudioState(session);
       tracker.waitForIdle().catch(() => {});
       attempt += 1;
       // Exponential backoff: 300ms, 600ms, 1200ms...
       const backoffMs = 300 * Math.pow(2, attempt - 1);
+      log.debug("agent", `Backoff ${backoffMs}ms before retry`);
       await new Promise((resolve) => setTimeout(resolve, backoffMs));
       continue;
     }
   }
   // All retries exhausted - throw error instead of silently continuing
-  console.error("[realtime] Failed to deliver prompt after all retries");
+  log.error("agent", "Failed to deliver prompt after all retries");
   throw lastError ?? new Error("Failed to deliver prompt to agent");
 }
 
@@ -424,28 +436,32 @@ async function waitForParticipantExchange(
   if (timeoutMs <= 0) {
     return false;
   }
+  log.session(`👂 Listening for participant (window=${timeoutMs}ms, grace=${graceMs}ms)`);
+
   return new Promise<boolean>((resolve) => {
     const onHistoryAdded = (item: unknown) => {
       const candidate = item as { type?: string; role?: string } | undefined;
+      log.debug("listen", `history_added event: ${JSON.stringify(candidate)?.slice(0, 200)}`);
       if (!candidate || candidate.type !== "message" || candidate.role !== "user") {
         return;
       }
+      log.session("✓ Participant message detected, resolving listen window");
       cleanup();
       resolve(true);
     };
     const onTimeout = () => {
       cleanup();
-      console.warn(
-        `[realtime] No participant response within ${timeoutMs} ms; continuing.`,
-      );
+      log.warn("listen", `⏰ No participant response within ${timeoutMs}ms; continuing to next step`);
       resolve(false);
     };
     let timer: NodeJS.Timeout | null = null;
     const startTimer = () => {
+      log.debug("listen", `Timer started (${timeoutMs}ms)`);
       timer = setTimeout(onTimeout, timeoutMs);
       (timer as NodeJS.Timeout).unref?.();
     };
     if (graceMs > 0) {
+      log.debug("listen", `Grace period ${graceMs}ms before timer starts`);
       setTimeout(startTimer, graceMs);
     } else {
       startTimer();
@@ -457,9 +473,6 @@ async function waitForParticipantExchange(
       session.off("history_added", onHistoryAdded);
     };
     session.on("history_added", onHistoryAdded);
-    console.info(
-      `[realtime] listening for participant (window=${timeoutMs}ms, grace=${graceMs}ms)`,
-    );
   });
 }
 
@@ -471,7 +484,7 @@ function clearTransportAudioState(session: RealtimeSession) {
     try {
       transport.interrupt(true);
     } catch (error) {
-      console.debug("[realtime] transport interrupt noop:", error);
+      log.debug("realtime", "transport interrupt noop", error);
     }
   }
 }
@@ -485,7 +498,10 @@ export function createAgent() {
 }
 
 export async function startSession(ephemeralKey: string) {
+  log.lifecycle("SESSION START", { model: REALTIME_MODEL, textOnly: TEXT_ONLY });
+
   async function handleNoInput(context: "intro" | "step") {
+    log.session(`No input detected (${context}), providing encouragement`);
     const message =
       context === "intro"
         ? "I didn't hear you yet, but you can jump in at any time. Let's keep going."
@@ -494,6 +510,7 @@ export async function startSession(ephemeralKey: string) {
     await waitForPlaybackIdle();
   }
 
+  log.debug("agent", "Creating RealtimeSession");
   const agent = createAgent();
   const session = new RealtimeSession(agent, {
     model: REALTIME_MODEL,
@@ -501,6 +518,7 @@ export async function startSession(ephemeralKey: string) {
     config: TEXT_ONLY
       ? { modalities: ["text"] }
       : {
+          modalities: ["audio"],
           audio: {
             input: {
               format: { type: "audio/pcm", rate: ALSA_SAMPLE_RATE },
@@ -512,7 +530,7 @@ export async function startSession(ephemeralKey: string) {
         },
   });
   const audioBinding = TEXT_ONLY
-    ? { start() {}, stop() {}, waitForPlaybackIdle: async () => {} }
+    ? { start() {}, stop() {}, stopCapture() {}, waitForPlaybackIdle: async () => {} }
     : createAlsaAudioBinding(session);
   const waitForPlaybackIdle = async () => {
     await audioBinding.waitForPlaybackIdle?.();
@@ -523,6 +541,14 @@ export async function startSession(ephemeralKey: string) {
   try {
     const participantUtterances: string[] = [];
     let stopRequested = false;
+
+    // Register the end_session tool callback
+    setEndSessionCallback(() => {
+      log.lifecycle("🛑 end_session tool called - stopping session");
+      stopRequested = true;
+      audioBinding.stopCapture();
+    });
+
     historyListener = (item: unknown) => {
       const candidate = item as { type?: string; role?: string } | undefined;
       if (!candidate || candidate.type !== "message") {
@@ -532,7 +558,7 @@ export async function startSession(ephemeralKey: string) {
       if (!text) return;
       if (candidate.role === "user") {
         participantUtterances.push(text);
-        console.info(`[realtime] participant: ${text}`);
+        log.speech(`Participant: "${text}"`);
         const normalized = text.toLowerCase();
         if (
           normalized.includes("stop session") ||
@@ -547,19 +573,108 @@ export async function startSession(ephemeralKey: string) {
           normalized.includes("that's all") ||
           normalized.includes("bye")
         ) {
+          log.lifecycle("🛑 STOP REQUESTED by participant", { text });
           stopRequested = true;
+          // Interrupt any ongoing response (official API)
+          session.interrupt();
+          // Cancel tracked responses
+          responseTracker.cancelActive();
+          // IMMEDIATELY stop capture so no more audio goes to API
+          audioBinding.stopCapture();
+          log.lifecycle("Audio capture killed immediately");
         }
       } else if (candidate.role === "assistant") {
-        console.info(`[realtime] agent said: ${text}`);
+        log.speech(`Agent: "${text.slice(0, 100)}${text.length > 100 ? "..." : ""}"`);
       }
     };
 
     // Connect to Realtime (WebRTC in browser, WS in Node)
+    log.lifecycle("Connecting to OpenAI Realtime API...");
     await session.connect({ apiKey: ephemeralKey });
+    log.lifecycle("✓ Connected to OpenAI Realtime API");
+
+    // Log tools registered with the agent
+    log.info("agent", `Agent tools: ${tools.map(t => t.name).join(", ")}`);
+
+    // Debug session events
+    const s = session as any;
+    s.on?.("session.updated", (event: unknown) => {
+      log.info("realtime", "session.updated received", event);
+    });
+    s.on?.("session.created", (event: unknown) => {
+      log.info("realtime", "session.created received - checking transcription settings", event);
+    });
+
+    log.debug("audio", "Starting audio binding");
     audioBinding.start();
+
+    // Attach history listener for stop detection
     if (historyListener) {
       session.on("history_added", historyListener);
+      log.lifecycle("historyListener attached for stop detection");
+    } else {
+      log.error("agent", "historyListener is null - stop detection will NOT work!");
     }
+
+    // Debug logging for ALL session events
+    // (reuse `s` from earlier)
+
+    // Log ALL history_added events
+    session.on("history_added", (item: unknown) => {
+      log.info("realtime", `[EVENT] history_added: ${JSON.stringify(item)?.slice(0, 300)}`);
+    });
+    s.on?.("input_audio_buffer.speech_started", () => {
+      log.speech("Speech started - participant is speaking");
+    });
+    s.on?.("input_audio_buffer.speech_stopped", () => {
+      log.speech("Speech stopped - processing audio");
+    });
+    s.on?.("input_audio_buffer.committed", () => {
+      log.debug("audio", "Audio buffer committed");
+    });
+    s.on?.("conversation.item.created", (event: unknown) => {
+      const e = event as { item?: { type?: string; role?: string } } | undefined;
+      log.debug("realtime", `conversation.item.created: type=${e?.item?.type}, role=${e?.item?.role}`);
+    });
+    s.on?.("conversation.item.input_audio_transcription.completed", (event: unknown) => {
+      const e = event as { transcript?: string } | undefined;
+      log.speech(`Transcription completed: "${e?.transcript?.slice(0, 100)}"`);
+    });
+    s.on?.("conversation.item.input_audio_transcription.failed", (event: unknown) => {
+      log.error("realtime", "Transcription failed", event);
+    });
+    s.on?.("response.created", (event: unknown) => {
+      const e = event as { response?: { id?: string } } | undefined;
+      log.debug("realtime", `response.created: id=${e?.response?.id}`);
+    });
+    s.on?.("response.done", (event: unknown) => {
+      log.debug("realtime", "response.done event received");
+    });
+    s.on?.("response.audio.delta", () => {
+      log.debug("realtime", "response.audio.delta - audio chunk received");
+    });
+    s.on?.("error", (event: unknown) => {
+      log.error("realtime", "Session error event", event);
+    });
+    s.on?.("response.function_call_arguments.done", (event: unknown) => {
+      log.info("realtime", "Tool call arguments done!", event);
+    });
+    s.on?.("response.function_call_arguments.delta", (event: unknown) => {
+      log.debug("realtime", "Tool call arguments delta", event);
+    });
+    // Listen for function_call items in conversation
+    s.on?.("tool_call", (event: unknown) => {
+      log.info("realtime", "🔧 TOOL CALL EVENT!", JSON.stringify(event)?.slice(0, 500));
+    });
+    s.on?.("tool_approved", (event: unknown) => {
+      log.info("realtime", "🔧 Tool approved", event);
+    });
+    s.on?.("tool_start", (event: unknown) => {
+      log.info("realtime", "🔧 Tool start", event);
+    });
+    s.on?.("tool_end", (event: unknown) => {
+      log.info("realtime", "🔧 Tool end", event);
+    });
 
     // Immediately kick off the curriculum (no user utterance required)
     // 1) Build the plan
@@ -574,21 +689,26 @@ export async function startSession(ephemeralKey: string) {
       "local-participant";
     const participantId = envParticipantId ?? userExternalId;
     if (!envParticipantId && !process.env.COCO_USER_EXTERNAL_ID) {
-      console.warn(
-        `[backend] COCO_PARTICIPANT_ID/COCO_USER_EXTERNAL_ID not set; defaulting to "${userExternalId}".`,
-      );
+      log.warn("config", `COCO_PARTICIPANT_ID/COCO_USER_EXTERNAL_ID not set; defaulting to "${userExternalId}"`);
     }
     const deviceId =
       process.env.COCO_DEVICE_ID ?? process.env.HOSTNAME ?? "local-device";
     if (!process.env.COCO_DEVICE_ID) {
-      console.warn(
-        `[backend] COCO_DEVICE_ID not set; defaulting to "${deviceId}".`,
-      );
+      log.warn("config", `COCO_DEVICE_ID not set; defaulting to "${deviceId}"`);
     }
     const label =
       process.env.COCO_SESSION_LABEL ?? "coco-realtime-autostart-session";
 
+    log.lifecycle("Session initialized", {
+      sessionId,
+      planId,
+      deviceId,
+      participantId,
+      activityCount: plan.length,
+    });
+
     // 2) Ask the agent to run it step-by-step with voice output
+    log.session("=== INTRO PHASE ===");
     await sessionSay(
       session,
       responseTracker,
@@ -605,21 +725,56 @@ export async function startSession(ephemeralKey: string) {
       await handleNoInput("intro");
     }
     if (stopRequested) {
+      log.lifecycle("Session ending early (stop requested in intro)");
       await sessionSay(
         session,
         responseTracker,
         "Okay, I'll stop here. Thank you for spending time with me today.",
       );
       await waitForPlaybackIdle();
+      log.lifecycle("SESSION END (early stop)");
       return session;
     }
 
     let turnCount = 0;
 
-    for (const step of plan) {
+    log.session("=== ACTIVITIES PHASE ===");
+    let saidGoodbye = false;
+    for (let i = 0; i < plan.length; i++) {
+      // Check at start of each iteration for early exit
+      if (stopRequested) {
+        log.lifecycle(`Stop already requested, skipping remaining activities`);
+        if (!saidGoodbye) {
+          await sessionSay(
+            session,
+            responseTracker,
+            "Got it. I'll wrap up here. Thank you for sharing your time.",
+          );
+          await waitForPlaybackIdle();
+          saidGoodbye = true;
+        }
+        break;
+      }
+
+      const step = plan[i];
+      log.session(`--- Activity ${i + 1}/${plan.length}: ${step.category ?? "unknown"} ---`);
+
+      // Check before starting activity
+      if (stopRequested) {
+        log.lifecycle(`Stop already set before activity ${i + 1}, breaking`);
+        break;
+      }
+
       const line =
         step.prompt ?? step.instructions ?? (step.trials?.[0] ?? "");
       await sessionSay(session, responseTracker, line);
+
+      // Check after agent speaks
+      if (stopRequested) {
+        log.lifecycle(`Stop detected after agent spoke at activity ${i + 1}`);
+        break;
+      }
+
       await waitForPlaybackIdle();
       turnCount += 1;
       const listenWindowMs = clampParticipantWindow(step.duration_min);
@@ -628,35 +783,94 @@ export async function startSession(ephemeralKey: string) {
         listenWindowMs,
         LISTEN_GRACE_MS,
       );
+
+      // Check stopRequested IMMEDIATELY after listen window
+      if (stopRequested) {
+        log.lifecycle(`Stop detected after listen window at activity ${i + 1}`);
+        if (!saidGoodbye) {
+          await sessionSay(
+            session,
+            responseTracker,
+            "Got it. I'll wrap up here. Thank you for sharing your time.",
+          );
+          await waitForPlaybackIdle();
+          saidGoodbye = true;
+        }
+        break;
+      }
+
       if (!participantResponded) {
         await handleNoInput("step");
       }
+
+      // Check again after handleNoInput
       if (stopRequested) {
-        await sessionSay(
-          session,
-          responseTracker,
-          "Got it. I'll wrap up here. Thank you for sharing your time.",
-        );
-        await waitForPlaybackIdle();
+        log.lifecycle(`Session ending early (stop requested at activity ${i + 1})`);
+        if (!saidGoodbye) {
+          await sessionSay(
+            session,
+            responseTracker,
+            "Got it. I'll wrap up here. Thank you for sharing your time.",
+          );
+          await waitForPlaybackIdle();
+          saidGoodbye = true;
+        }
         break;
       }
-      // (The agent’s default turn-taking now waits for the participant before advancing.)
-      // telemetry tool call skipped in standalone runner
-
     }
 
-    await sessionSay(
-      session,
-      responseTracker,
-      "Great work today. Take a breath and enjoy the rest of your day.",
-    );
-    await waitForPlaybackIdle();
-    await waitForParticipantExchange(session, FINAL_RESPONSE_WINDOW_MS);
+    // Handle closing
+    log.session("=== CLOSING PHASE ===");
+
+    // Stop capture FIRST so no more user speech is sent during goodbye
+    log.lifecycle("Stopping audio capture before goodbye");
+    audioBinding.stopCapture();
+
+    // Say appropriate goodbye based on whether stop was requested
+    if (stopRequested && !saidGoodbye) {
+      log.lifecycle("Saying goodbye (stop was requested)");
+      await sessionSay(
+        session,
+        responseTracker,
+        "Got it. I'll wrap up here. Thank you for sharing your time.",
+      );
+      await waitForPlaybackIdle();
+      saidGoodbye = true;
+    } else if (!stopRequested) {
+      await sessionSay(
+        session,
+        responseTracker,
+        "Great work today. Take a breath and enjoy the rest of your day.",
+      );
+      await waitForPlaybackIdle();
+    } else {
+      log.debug("session", "Goodbye already said, skipping");
+    }
+
+    // Now stop everything and disconnect
+    log.lifecycle("Stopping playback and disconnecting session");
+    audioBinding.stop();
+
+    // Interrupt any ongoing response and close (official API)
+    session.interrupt();
+    session.close();
+
+    // Wait a bit for cleanup
+    await new Promise(resolve => setTimeout(resolve, 100));
+    log.lifecycle("Session disconnected");
+
     stopRequested = true;
     const tsEnd = new Date();
     const totalDurationSec = Math.round(
       (tsEnd.getTime() - tsStart.getTime()) / 1000
     );
+
+    log.lifecycle("Session activities complete", {
+      durationSec: totalDurationSec,
+      turnCount,
+      utteranceCount: participantUtterances.length,
+    });
+
     const sentiment =
       (await scoreSentimentFromTranscript(participantUtterances)) ?? {
         summary: "no_input",
@@ -667,9 +881,7 @@ export async function startSession(ephemeralKey: string) {
       .join(" | ");
     const transcriptNote = fullTranscriptNote.slice(0, 1800);
     if (fullTranscriptNote.length > 1800) {
-      console.warn(
-        `[backend] Session notes truncated from ${fullTranscriptNote.length} to 1800 chars`,
-      );
+      log.warn("backend", `Session notes truncated from ${fullTranscriptNote.length} to 1800 chars`);
     }
     const summaryPayload = {
       session_id: sessionId,
@@ -688,13 +900,26 @@ export async function startSession(ephemeralKey: string) {
         process.env.COCO_SESSION_NOTES ??
         (transcriptNote ? `transcript: ${transcriptNote}` : undefined),
     };
-    console.info("[backend] sending session summary", summaryPayload);
+
+    log.session("=== SUMMARY PHASE ===");
     await sendSessionSummary(summaryPayload);
-    console.info("[backend] session summary sent");
+
+    log.lifecycle("SESSION END", {
+      sessionId,
+      durationSec: totalDurationSec,
+      turnCount,
+      sentiment: sentiment?.summary,
+    });
+
     return session;
   } finally {
+    log.debug("cleanup", "Stopping audio binding and closing session");
     audioBinding.stop();
-    session.close();
+
+    // Clear the end_session callback
+    clearEndSessionCallback();
+
+    // Remove event listeners first
     if (historyListener) {
       try {
         session.off("history_added", historyListener);
@@ -702,5 +927,15 @@ export async function startSession(ephemeralKey: string) {
         /* ignore */
       }
     }
+
+    // Interrupt and close (official API)
+    try {
+      session.interrupt();
+      session.close();
+    } catch {
+      /* ignore close errors */
+    }
+
+    log.debug("cleanup", "Session cleanup complete");
   }
 }

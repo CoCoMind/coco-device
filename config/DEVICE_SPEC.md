@@ -11,6 +11,7 @@ Coco is a cognitive coaching agent that runs on Raspberry Pi devices, providing 
 - **OTA updates** for automatic software deployment
 - **Sentiment analysis** of participant responses
 - **Backend telemetry** for session tracking and analytics
+- **Remote command execution** via admin panel integration
 
 ---
 
@@ -23,6 +24,7 @@ Coco is a cognitive coaching agent that runs on Raspberry Pi devices, providing 
 │  systemd timers                                                 │
 │  ├── coco-agent-scheduler.timer (09:00, 15:00)                  │
 │  ├── coco-heartbeat.timer (every 5 min)                         │
+│  ├── coco-command-poller.timer (every 30s)                      │
 │  └── coco-update.timer (daily 02:30)                            │
 ├─────────────────────────────────────────────────────────────────┤
 │  Agent Runtime (Node.js/TypeScript)                             │
@@ -31,12 +33,16 @@ Coco is a cognitive coaching agent that runs on Raspberry Pi devices, providing 
 │  ├── src/audioIO.ts       → ALSA audio capture/playback         │
 │  ├── src/planner.ts       → Activity curriculum builder         │
 │  ├── src/backend.ts       → Backend API client                  │
-│  └── src/tools.ts         → Agent tools (telemetry)             │
+│  ├── src/tools.ts         → Agent tools (telemetry, end_session)│
+│  ├── src/logger.ts        → Centralized logging utility         │
+│  ├── src/telemetry.ts     → Activity event logging              │
+│  └── src/mockAgent.ts     → Mock mode for testing               │
 ├─────────────────────────────────────────────────────────────────┤
 │  Scripts                                                        │
 │  ├── coco-native-agent-boot.sh  → Agent launcher                │
 │  ├── run-scheduled-session.sh   → Scheduler entry point         │
 │  ├── coco-heartbeat.sh          → Health reporting              │
+│  ├── coco-command-poller.sh     → Admin command executor        │
 │  └── coco-update.sh             → OTA update script             │
 └─────────────────────────────────────────────────────────────────┘
               │                              │
@@ -45,7 +51,8 @@ Coco is a cognitive coaching agent that runs on Raspberry Pi devices, providing 
     │  OpenAI API     │           │  Coco Backend       │
     │  - Realtime WS  │           │  - /internal/ingest │
     │  - Responses    │           │  - /internal/heartbeat│
-    └─────────────────┘           └─────────────────────┘
+    └─────────────────┘           │  - /internal/commands│
+                                  └─────────────────────┘
 ```
 
 ---
@@ -92,6 +99,12 @@ Coco is a cognitive coaching agent that runs on Raspberry Pi devices, providing 
 | `COCO_BACKEND_TIMEOUT_MS` | `10000` | Request timeout |
 | `COCO_BACKEND_RETRIES` | `1` | Number of retry attempts |
 
+### Logging
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `COCO_LOG_LEVEL` | `debug` | Log level: `debug`, `info`, `warn`, `error` |
+
 ---
 
 ## Systemd Services
@@ -103,6 +116,7 @@ Coco is a cognitive coaching agent that runs on Raspberry Pi devices, providing 
 | `coco-agent.service` | Manual/ad-hoc agent runs | Manual start |
 | `coco-agent-scheduler.service` | Scheduled session runner | Timer |
 | `coco-heartbeat.service` | Health reporting | Timer |
+| `coco-command-poller.service` | Admin command execution | Timer |
 | `coco-update.service` | OTA updates | Timer |
 
 ### Timer Schedule
@@ -111,6 +125,7 @@ Coco is a cognitive coaching agent that runs on Raspberry Pi devices, providing 
 |-------|----------|--------|---------|
 | `coco-agent-scheduler.timer` | 09:00, 15:00 | None | Twice-daily sessions |
 | `coco-heartbeat.timer` | Every 5 min | 60s | Health monitoring |
+| `coco-command-poller.timer` | Every 30s | 5s | Admin command polling |
 | `coco-update.timer` | 02:30 daily | 15 min | Software updates |
 
 ---
@@ -192,6 +207,67 @@ Coco is a cognitive coaching agent that runs on Raspberry Pi devices, providing 
 }
 ```
 
+### Admin Panel Integration
+
+The command poller enables remote device management from the admin panel.
+
+#### Poll Commands Endpoint
+`GET {COCO_BACKEND_URL}/internal/commands/pending`
+
+**Headers:**
+- `Authorization: Bearer ${INGEST_SERVICE_TOKEN}`
+- `X-Device-ID: ${COCO_DEVICE_ID}`
+
+**Response:**
+```json
+{
+  "command": {
+    "id": "550e8400-e29b-41d4-a716-446655440000",
+    "command_type": "REBOOT",
+    "payload": null,
+    "created_at": "2024-11-25T14:30:00Z"
+  }
+}
+```
+Returns `{"command": null}` if no pending commands.
+
+#### Report Status Endpoint
+`POST {COCO_BACKEND_URL}/internal/commands/{command_id}/status`
+
+**Payload:**
+```json
+{
+  "status": "COMPLETED"
+}
+```
+Or on failure:
+```json
+{
+  "status": "FAILED",
+  "error": "Permission denied"
+}
+```
+
+#### Upload Logs Endpoint
+`POST {COCO_BACKEND_URL}/internal/ingest/logs`
+
+**Payload:**
+```json
+{
+  "device_id": "string",
+  "content": "log content..."
+}
+```
+
+#### Supported Commands
+
+| Command | Action | Notes |
+|---------|--------|-------|
+| `REBOOT` | `sudo reboot` | Status reported before reboot |
+| `RESTART_SERVICE` | `sudo systemctl restart coco-agent.service` | Restarts main agent |
+| `UPLOAD_LOGS` | Collect logs → POST to backend | Last 200 lines from each log |
+| `UPDATE_NOW` | Run `/usr/local/bin/coco-update.sh` | Git pull + restart |
+
 ---
 
 ## File System Layout
@@ -214,17 +290,21 @@ Coco is a cognitive coaching agent that runs on Raspberry Pi devices, providing 
 /var/log/coco/
 ├── agent.log                     # Agent runtime logs
 ├── session-scheduler.log         # Scheduler logs
-└── heartbeat.log                 # Heartbeat logs
+├── heartbeat.log                 # Heartbeat logs
+└── command-poller.log            # Command poller logs
 /var/lib/coco/
 └── last_session_at               # Timestamp of last session
 /tmp/coco-session-runner.lock     # Concurrency lock
+/tmp/coco-command-poller.lock     # Command poller lock
 ```
 
 ### Installed Scripts
 ```
 /usr/local/bin/
 ├── coco-native-agent-boot.sh
+├── run-scheduled-session.sh
 ├── coco-heartbeat.sh
+├── coco-command-poller.sh
 └── coco-update.sh
 ```
 
@@ -291,6 +371,7 @@ These can be identical across devices:
 - Agent: `/var/log/coco/agent.log`
 - Scheduler: `/var/log/coco/session-scheduler.log`
 - Heartbeat: `/var/log/coco/heartbeat.log`
+- Command Poller: `/var/log/coco/command-poller.log`
 - Systemd: `journalctl -u coco-agent.service`
 
 ### Health Checks

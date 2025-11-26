@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import log from "./logger";
 
 const BACKEND_URL = process.env.COCO_BACKEND_URL || undefined;
 const INGEST_TOKEN =
@@ -36,7 +37,7 @@ async function postJSON(
   token?: string
 ) {
   if (!baseUrl) {
-    console.warn(`[backend] Skipping ${label}; base URL not configured.`);
+    log.warn("backend", `Skipping ${label}; base URL not configured`);
     return;
   }
   const payload = JSON.stringify(body);
@@ -48,8 +49,10 @@ async function postJSON(
   }
   const url = new URL(path, baseUrl).toString();
   const attempts = Math.max(1, BACKEND_RETRIES + 1);
+
   for (let attempt = 1; attempt <= attempts; attempt += 1) {
     const controller = new AbortController();
+    const startTime = Date.now();
     const timer = setTimeout(() => {
       controller.abort(
         new Error(
@@ -57,9 +60,10 @@ async function postJSON(
         ),
       );
     }, BACKEND_TIMEOUT_MS);
+
     try {
-      console.info(`[backend] POST ${label} → ${url} (attempt ${attempt}/${attempts})`);
-      console.debug(`[backend] payload: ${payload}`);
+      log.request("POST", url, body, attempt, attempts);
+
       const res = await fetch(url, {
         method: "POST",
         headers,
@@ -67,29 +71,45 @@ async function postJSON(
         signal: controller.signal,
       });
       clearTimeout(timer);
-      if (!res.ok) {
-        const text = await res.text().catch(() => "");
-        throw new Error(`${res.status} ${res.statusText} ${text}`);
+
+      const durationMs = Date.now() - startTime;
+      let responseBody: unknown;
+      try {
+        responseBody = await res.text();
+      } catch {
+        responseBody = undefined;
       }
-      console.info(`[backend] POST ${label} succeeded (${res.status})`);
+
+      if (!res.ok) {
+        log.response("POST", url, res.status, durationMs, responseBody);
+        throw new Error(`${res.status} ${res.statusText} ${responseBody ?? ""}`);
+      }
+
+      log.response("POST", url, res.status, durationMs);
       return;
     } catch (error) {
       clearTimeout(timer);
+      const durationMs = Date.now() - startTime;
       const isLastAttempt = attempt === attempts;
-      const level = isLastAttempt ? "error" : "warn";
-      console[level as "warn" | "error"](
-        `[backend] POST ${label} failed (attempt ${attempt}/${attempts}):`,
-        error,
-      );
+
       if (isLastAttempt) {
-        break;
+        log.error("backend", `POST ${label} FAILED after ${attempts} attempts (${durationMs}ms)`, error);
+      } else {
+        log.warn("backend", `POST ${label} failed (attempt ${attempt}/${attempts}, ${durationMs}ms), retrying...`, error);
+        await new Promise((resolve) => setTimeout(resolve, 300));
       }
-      await new Promise((resolve) => setTimeout(resolve, 300));
     }
   }
 }
 
 export async function sendSessionSummary(payload: SessionSummaryPayload) {
+  log.lifecycle("Sending session summary to backend", {
+    session_id: payload.session_id,
+    duration_seconds: payload.duration_seconds,
+    turn_count: payload.turn_count,
+    sentiment: payload.sentiment_summary,
+  });
+
   await postJSON(
     BACKEND_URL,
     "/internal/ingest/session_summary",
@@ -97,11 +117,15 @@ export async function sendSessionSummary(payload: SessionSummaryPayload) {
     "session summary",
     INGEST_TOKEN
   );
+
+  log.lifecycle("Session summary send complete");
 }
 
 export function createSessionIdentifiers() {
-  return {
+  const ids = {
     sessionId: randomUUID(),
     planId: randomUUID(),
   };
+  log.debug("backend", "Created session identifiers", ids);
+  return ids;
 }

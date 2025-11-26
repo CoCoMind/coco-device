@@ -1,5 +1,6 @@
 import { REALTIME_MODEL, startSession } from "./agent";
 import { runMockAgentSession } from "./mockAgent";
+import log from "./logger";
 
 function isTextOnlyMode(): boolean {
   const modality = (process.env.OPENAI_OUTPUT_MODALITY ?? "").toLowerCase();
@@ -20,6 +21,21 @@ async function createEphemeralKey(): Promise<string> {
     controller.abort(new Error("ephemeral key request timed out"));
   }, Math.max(1000, abortAfterMs));
 
+  const sessionConfig = {
+    type: "realtime",
+    model: REALTIME_MODEL,
+    output_modalities: isTextOnlyMode() ? ["text"] : ["audio"],
+    audio: isTextOnlyMode()
+      ? undefined
+      : {
+          input: undefined,
+          output: {
+            voice: process.env.OPENAI_VOICE ?? "verse",
+          },
+        },
+  };
+  log.info("runAgent", "Creating session with config", sessionConfig);
+
   const res = await fetch(
     "https://api.openai.com/v1/realtime/client_secrets",
     {
@@ -28,21 +44,7 @@ async function createEphemeralKey(): Promise<string> {
         Authorization: `Bearer ${apiKey}`,
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({
-        session: {
-          type: "realtime",
-          model: REALTIME_MODEL,
-          output_modalities: isTextOnlyMode() ? ["text"] : ["audio"],
-          audio: isTextOnlyMode()
-            ? undefined
-            : {
-                input: undefined,
-                output: {
-                  voice: process.env.OPENAI_VOICE ?? "verse",
-                },
-              },
-        },
-      }),
+      body: JSON.stringify({ session: sessionConfig }),
       signal: controller.signal,
     },
   ).finally(() => clearTimeout(timer));
@@ -58,8 +60,10 @@ async function createEphemeralKey(): Promise<string> {
     value?: string;
     client_secret?: { value?: string };
   };
+  log.debug("runAgent", "Session created", { responseKeys: Object.keys(data) });
   const key = data.value ?? data.client_secret?.value;
   if (!key) {
+    log.error("runAgent", "Session response missing client_secret.value", data);
     throw new Error("Realtime session response missing client_secret.value");
   }
   return key;
@@ -73,9 +77,7 @@ function resolveMode(): AgentMode {
     return "realtime";
   }
   if (raw !== "mock") {
-    console.warn(
-      `[runAgent] Unrecognized COCO_AGENT_MODE="${raw}", defaulting to mock.`,
-    );
+    log.warn("runAgent", `Unrecognized COCO_AGENT_MODE="${raw}", defaulting to mock`);
   }
   return "mock";
 }
@@ -84,11 +86,13 @@ async function runRealtime() {
   const ephemeralKey =
     process.env.OPENAI_EPHEMERAL_KEY ?? (await createEphemeralKey());
   await startSession(ephemeralKey);
+  log.lifecycle("Session complete, forcing exit");
+  process.exit(0);
 }
 
 async function main() {
   const mode = resolveMode();
-  console.log(`[runAgent] starting in ${mode} mode`);
+  log.lifecycle(`Starting in ${mode} mode`);
   if (mode === "realtime") {
     await runRealtime();
   } else {
@@ -97,6 +101,6 @@ async function main() {
 }
 
 main().catch((error) => {
-  console.error("[runAgent] fatal:", error);
+  log.error("runAgent", "Fatal error", error);
   process.exit(1);
 });

@@ -14,6 +14,7 @@ install_bins() {
   install -m 755 "${INSTALL_DIR}/scripts/run-scheduled-session.sh" /usr/local/bin/run-scheduled-session.sh
   install -m 755 "${INSTALL_DIR}/scripts/coco-heartbeat.sh" /usr/local/bin/coco-heartbeat.sh
   install -m 755 "${INSTALL_DIR}/scripts/coco-update.sh" /usr/local/bin/coco-update.sh
+  install -m 755 "${INSTALL_DIR}/scripts/coco-command-poller.sh" /usr/local/bin/coco-command-poller.sh
 }
 
 install_units() {
@@ -25,16 +26,21 @@ install_units() {
   install -m 644 "${INSTALL_DIR}/systemd/coco-heartbeat.timer" /etc/systemd/system/coco-heartbeat.timer
   install -m 644 "${INSTALL_DIR}/systemd/coco-update.service" /etc/systemd/system/coco-update.service
   install -m 644 "${INSTALL_DIR}/systemd/coco-update.timer" /etc/systemd/system/coco-update.timer
+  install -m 644 "${INSTALL_DIR}/systemd/coco-command-poller.service" /etc/systemd/system/coco-command-poller.service
+  install -m 644 "${INSTALL_DIR}/systemd/coco-command-poller.timer" /etc/systemd/system/coco-command-poller.timer
 
   sed -i "s/^User=.*/User=${RUN_USER}/" \
     /etc/systemd/system/coco-agent.service \
     /etc/systemd/system/coco-agent-scheduler.service \
-    /etc/systemd/system/coco-heartbeat.service || true
-  sed -i "s/^Group=.*/Group=${RUN_USER}/" /etc/systemd/system/coco-heartbeat.service || true
+    /etc/systemd/system/coco-heartbeat.service \
+    /etc/systemd/system/coco-command-poller.service || true
+  sed -i "s/^Group=.*/Group=${RUN_USER}/" \
+    /etc/systemd/system/coco-heartbeat.service \
+    /etc/systemd/system/coco-command-poller.service || true
   sed -i "s/^Environment=COCO_RUN_USER=.*/Environment=COCO_RUN_USER=${RUN_USER}/" /etc/systemd/system/coco-update.service || true
 
   systemctl daemon-reload
-  systemctl enable coco-agent-scheduler.timer coco-heartbeat.timer coco-update.timer
+  systemctl enable coco-agent-scheduler.timer coco-heartbeat.timer coco-update.timer coco-command-poller.timer
 }
 
 cd "$INSTALL_DIR"
@@ -63,4 +69,5 @@ systemctl restart coco-agent.service
 systemctl restart coco-agent-scheduler.timer
 systemctl restart coco-heartbeat.timer
 systemctl restart coco-update.timer
+systemctl restart coco-command-poller.timer
 log "Update complete"

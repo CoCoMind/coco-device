@@ -1,3 +1,5 @@
+import log from "./logger";
+
 export type TelemetryEvent = {
   activity_id: string;
   category: string;
@@ -8,7 +10,5 @@ export type TelemetryEvent = {
 };
 
 export async function logEvent(event: TelemetryEvent): Promise<void> {
-  // In a real deployment, send this to durable storage or analytics.
-  // For demo purposes we log locally so it is easy to inspect.
-  console.info('[telemetry]', JSON.stringify(event));
+  log.info("telemetry", "Activity event", event);
 }

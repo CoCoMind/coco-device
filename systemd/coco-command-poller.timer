@@ -1,0 +1,12 @@
+[Unit]
+Description=Poll for admin commands every 30 seconds
+
+[Timer]
+OnBootSec=30
+OnUnitActiveSec=30
+AccuracySec=5
+Unit=coco-command-poller.service
+Persistent=true
+
+[Install]
+WantedBy=timers.target

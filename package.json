@@ -1,6 +1,6 @@
 {
   "name": "coco-device",
-  "version": "1.0.0",
+  "version": "0.1.0",
   "main": "index.js",
   "scripts": {
     "start": "tsx src/runAgent.ts",

@@ -1,19 +1,16 @@
 import { spawn, ChildProcess } from "node:child_process";
 import { RealtimeSession } from "@openai/agents/realtime";
+import log from "./logger";
 
 const MAX_SAMPLE_RATE = 24000;
 const SAMPLE_RATE = (() => {
   const raw = Number(process.env.COCO_AUDIO_SAMPLE_RATE ?? "24000");
   if (!Number.isFinite(raw) || raw <= 0) {
-    console.warn(
-      `[alsa] Invalid COCO_AUDIO_SAMPLE_RATE="${process.env.COCO_AUDIO_SAMPLE_RATE}"; defaulting to ${MAX_SAMPLE_RATE}.`,
-    );
+    log.warn("audio", `Invalid COCO_AUDIO_SAMPLE_RATE="${process.env.COCO_AUDIO_SAMPLE_RATE}"; defaulting to ${MAX_SAMPLE_RATE}`);
     return MAX_SAMPLE_RATE;
   }
   if (raw > MAX_SAMPLE_RATE) {
-    console.warn(
-      `[alsa] COCO_AUDIO_SAMPLE_RATE=${raw} exceeds realtime max of ${MAX_SAMPLE_RATE}; clamping.`,
-    );
+    log.warn("audio", `COCO_AUDIO_SAMPLE_RATE=${raw} exceeds realtime max of ${MAX_SAMPLE_RATE}; clamping`);
     return MAX_SAMPLE_RATE;
   }
   return raw;
@@ -34,6 +31,7 @@ export const ALSA_SAMPLE_RATE = SAMPLE_RATE;
 type AudioBinding = {
   start(): void;
   stop(): void;
+  stopCapture(): void;
   waitForPlaybackIdle?: (maxWaitMs?: number) => Promise<void>;
 };
 
@@ -53,24 +51,25 @@ function safeSpawn(
   try {
     const proc = spawn(command, args, options);
     proc.on("error", (error) => {
-      console.error(`[alsa] ${label} process error:`, error);
+      log.error("audio", `${label} process error`, error);
     });
     return proc;
   } catch (error) {
-    console.error(`[alsa] Failed to start ${label} (${command}):`, error);
+    log.error("audio", `Failed to start ${label} (${command})`, error);
     return null;
   }
 }
 
 export function createAlsaAudioBinding(session: RealtimeSession): AudioBinding {
   if (process.platform !== "linux") {
-    return { start() {}, stop() {} };
+    log.debug("audio", "Not on Linux, skipping ALSA audio binding");
+    return { start() {}, stop() {}, stopCapture() {} };
   }
 
   const transport: unknown = session.transport;
   if (!transport || typeof (transport as { on: unknown }).on !== "function") {
-    console.warn("[alsa] Realtime transport does not expose event hooks; skipping audio binding.");
-    return { start() {}, stop() {} };
+    log.warn("audio", "Realtime transport does not expose event hooks; skipping audio binding");
+    return { start() {}, stop() {}, stopCapture() {} };
   }
 
   type TransportEmitter = {
@@ -194,14 +193,22 @@ export function createAlsaAudioBinding(session: RealtimeSession): AudioBinding {
     } catch (error) {
       const err = error as NodeJS.ErrnoException;
       if (err?.code !== "EPIPE") {
-        console.error("[alsa] Failed to stream playback audio:", err);
+        log.error("audio", "Failed to stream playback audio", err);
       }
     }
   };
 
   return {
     start() {
+      log.audio("Starting audio binding", {
+        outputDevice: OUTPUT_DEVICE,
+        inputDevice: INPUT_DEVICE,
+        sampleRate: SAMPLE_RATE,
+        captureDisabled: CAPTURE_DISABLED,
+      });
+
       if (!playback) {
+        log.debug("audio", `Starting playback: aplay -D ${OUTPUT_DEVICE}`);
         playback = safeSpawn("aplay", "aplay", playbackArgs, {
           stdio: ["pipe", "ignore", "inherit"],
         });
@@ -213,11 +220,12 @@ export function createAlsaAudioBinding(session: RealtimeSession): AudioBinding {
           playbackStdin.setMaxListeners?.(0);
           playbackStdin.on("error", (error: NodeJS.ErrnoException) => {
             if (error?.code !== "EPIPE") {
-              console.error("[alsa] playback stdin error:", error);
+              log.error("audio", "Playback stdin error", error);
             }
           });
+          log.info("audio", "✓ Playback (aplay) started");
         } else if (!playback) {
-          console.warn("[alsa] playback unavailable; skipping audio output.");
+          log.warn("audio", "Playback unavailable; skipping audio output");
         }
       }
       if (playback && !listenerAttached) {
@@ -226,37 +234,73 @@ export function createAlsaAudioBinding(session: RealtimeSession): AudioBinding {
       }
 
       if (!capture && !CAPTURE_DISABLED) {
+        log.debug("audio", `Starting capture: arecord -D ${INPUT_DEVICE}`);
         capture = safeSpawn("arecord", "arecord", captureArgs, {
           stdio: ["ignore", "pipe", "inherit"],
         });
         if (!capture) {
-          console.warn(
-            "[alsa] Microphone capture unavailable; participant speech will be skipped.",
-          );
+          log.warn("audio", "Microphone capture unavailable; participant speech will be skipped");
         } else {
+          log.info("audio", "✓ Capture (arecord) started");
+          let captureChunkCount = 0;
+          let audioSentCount = 0;
+          let lastLogTime = 0;
           capture.stdout?.on("data", (chunk: Buffer) => {
-            if (Date.now() < muteCaptureUntil) {
-              return;
+            captureChunkCount++;
+            const now = Date.now();
+            const isMuted = now < muteCaptureUntil;
+
+            // Log every 5 seconds to show capture is active
+            if (now - lastLogTime > 5000) {
+              const muteRemaining = Math.max(0, muteCaptureUntil - now);
+              log.audio(`Capture stats: ${captureChunkCount} chunks received, ${audioSentCount} sent to API, mute=${muteRemaining}ms`);
+              lastLogTime = now;
             }
+
+            if (isMuted) {
+              return; // Muted during playback
+            }
+
             try {
               session.sendAudio(bufferToArrayBuffer(chunk));
+              audioSentCount++;
             } catch (error) {
-              console.error("[alsa] Failed to send microphone audio:", error);
+              log.error("audio", "Failed to send microphone audio", error);
             }
           });
+          capture.on("error", (err) => {
+            log.error("audio", "Capture process error", err);
+          });
+          capture.on("exit", (code) => {
+            log.warn("audio", `Capture process exited with code ${code}`);
+          });
         }
+      } else if (CAPTURE_DISABLED) {
+        log.info("audio", "Capture disabled by configuration");
+      }
+    },
+    stopCapture() {
+      if (capture && !capture.killed) {
+        log.audio("Stopping capture only (keeping playback)");
+        capture.stdout?.removeAllListeners("data");
+        capture.kill("SIGTERM");
+        capture = null;
+        log.debug("audio", "Capture stopped");
       }
     },
     stop() {
+      log.audio("Stopping audio binding");
       if (capture && !capture.killed) {
         capture.stdout?.removeAllListeners("data");
         capture.kill("SIGTERM");
+        log.debug("audio", "Capture stopped");
       }
       if (playback && !playback.killed) {
         if (playback.stdin && playback.stdin.writable) {
           playback.stdin.end();
         }
         playback.kill("SIGTERM");
+        log.debug("audio", "Playback stopped");
       }
       capture = null;
       playback = null;
@@ -271,11 +315,13 @@ export function createAlsaAudioBinding(session: RealtimeSession): AudioBinding {
         }
         listenerAttached = false;
       }
+      log.audio("Audio binding stopped");
     },
     async waitForPlaybackIdle(maxWaitMs: number = 5_000) {
       const start = Date.now();
       while (pendingPlaybackMs > playbackLagFloorMs) {
         if (Date.now() - start > maxWaitMs) {
+          log.debug("audio", `waitForPlaybackIdle timed out after ${maxWaitMs}ms`);
           break;
         }
         await new Promise((resolve) => setTimeout(resolve, 50));

@@ -96,8 +96,10 @@ measure_latency() {
   if [ "${COCO_SKIP_LATENCY:-}" = "1" ]; then
     return
   fi
-  local total
-  total=$(curl -o /dev/null -s -w "%{time_total}" --max-time 5 https://www.google.com/generate_204 2>/dev/null)
+  # Measure latency to the backend's healthz endpoint
+  local url total
+  url="${COCO_BACKEND_URL%/}/healthz"
+  total=$(curl -o /dev/null -s -w "%{time_total}" --max-time 5 "$url" 2>/dev/null)
   if [ -n "$total" ]; then
     LATENCY_MS=$(python3 - "$total" <<'PY'
 import sys

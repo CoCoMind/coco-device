@@ -1,0 +1,14 @@
+[Unit]
+Description=Coco device command poller for admin panel
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=pi
+Group=pi
+ExecStart=/usr/local/bin/coco-command-poller.sh
+Nice=10
+
+[Install]
+WantedBy=multi-user.target
