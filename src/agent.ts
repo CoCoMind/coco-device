@@ -56,12 +56,39 @@ const LISTEN_GRACE_MS = Number(
   process.env.COCO_LISTEN_GRACE_MS ?? "2000",
 );
 
-type SentimentSnapshot = {
+export type SentimentSnapshot = {
   summary: string;
   score: number;
 };
 
-function extractTextFromMessage(item: any): string {
+export function parseSentimentJson(raw: string): SentimentSnapshot | null {
+  const trimmed = raw.trim();
+  if (!trimmed) {
+    return null;
+  }
+  const stripped = trimmed
+    .replace(/^```json/i, "")
+    .replace(/^```/, "")
+    .replace(/```$/, "")
+    .trim();
+  try {
+    const parsed = JSON.parse(stripped) as Partial<SentimentSnapshot>;
+    if (
+      parsed &&
+      typeof parsed.summary === "string" &&
+      typeof parsed.score === "number" &&
+      Number.isFinite(parsed.score)
+    ) {
+      const clamped = Math.min(1, Math.max(0, parsed.score));
+      return { summary: parsed.summary, score: clamped };
+    }
+  } catch {
+    /* swallow parse errors; caller will warn */
+  }
+  return null;
+}
+
+export function extractTextFromMessage(item: any): string {
   const content = item?.content;
   if (typeof content === "string") {
     return content;
@@ -96,7 +123,13 @@ async function scoreSentimentFromTranscript(
     return null;
   }
   const client = new OpenAI({ apiKey });
-  const transcript = utterances.join("\n").slice(0, 4000);
+  const fullTranscript = utterances.join("\n");
+  const transcript = fullTranscript.slice(0, 4000);
+  if (fullTranscript.length > 4000) {
+    console.warn(
+      `[sentiment] Transcript truncated from ${fullTranscript.length} to 4000 chars for sentiment analysis`,
+    );
+  }
   try {
     const response = await client.responses.create({
       model: process.env.COCO_SENTIMENT_MODEL ?? "gpt-4o-mini",
@@ -110,15 +143,9 @@ async function scoreSentimentFromTranscript(
       ],
     });
     const raw = (response.output_text ?? "").trim();
-    const parsed = JSON.parse(raw) as Partial<SentimentSnapshot>;
-    if (
-      parsed &&
-      typeof parsed.summary === "string" &&
-      typeof parsed.score === "number" &&
-      Number.isFinite(parsed.score)
-    ) {
-      const clamped = Math.min(1, Math.max(0, parsed.score));
-      return { summary: parsed.summary, score: clamped };
+    const parsed = parseSentimentJson(raw);
+    if (parsed) {
+      return parsed;
     }
     console.warn("[sentiment] Unexpected sentiment response; raw output:", raw);
   } catch (error) {
@@ -127,7 +154,7 @@ async function scoreSentimentFromTranscript(
   return null;
 }
 
-function clampParticipantWindow(durationMin?: number) {
+export function clampParticipantWindow(durationMin?: number) {
   const baseMin = Math.max(0.5, durationMin ?? 1);
   const derivedMs = Math.round(baseMin * 60_000);
   return Math.min(
@@ -142,8 +169,9 @@ type ResponseTracker = {
   trackResponse: (id: string) => void;
 };
 
-function createResponseTracker(session: RealtimeSession): ResponseTracker {
+export function createResponseTracker(session: RealtimeSession): ResponseTracker {
   let active = 0;
+  const trackedIds = new Set<string>();
   const waiters: Array<{
     resolve: () => void;
     reject: (err: Error) => void;
@@ -151,11 +179,14 @@ function createResponseTracker(session: RealtimeSession): ResponseTracker {
   }> = [];
 
   const s = session as any;
-  s.on("response.created", () => {
-    active += 1;
-  });
-  const clear = () => {
-    active = Math.max(0, active - 1);
+  const clear = (event?: { response?: { id?: string } }) => {
+    const id = event?.response?.id;
+    if (id && trackedIds.has(id)) {
+      trackedIds.delete(id);
+      active = Math.max(0, active - 1);
+    } else if (!id && active > 0) {
+      active = Math.max(0, active - 1);
+    }
     if (active === 0) {
       while (waiters.length) {
         const waiter = waiters.shift();
@@ -199,6 +230,8 @@ function createResponseTracker(session: RealtimeSession): ResponseTracker {
 
   const trackResponse = (id: string) => {
     if (!id) return;
+    if (trackedIds.has(id)) return;
+    trackedIds.add(id);
     active += 1;
   };
 
@@ -254,13 +287,11 @@ function waitForAgentTurn(
       s.off?.("response.done", onResponseDone);
       s.off?.("response.failed", onError);
       s.off?.("response.cancelled", onError);
+      s.off?.("error", onError);
       if (expectsAudio) {
         s.off?.("audio_done", onAudioDone);
         s.off?.("response.output_audio.done", onAudioDone);
       }
-      s.off?.("response.failed", onError);
-      s.off?.("response.cancelled", onError);
-      s.off?.("error", onError);
     };
     s.once?.("response.done", onResponseDone);
     s.once?.("response.failed", onError);
@@ -320,29 +351,33 @@ async function sessionSay(
         s.off?.("response.output_audio.done", onDone);
         s.off?.("error", onError);
       };
-      s.on?.("response.done", onDone);
-      s.on?.("response.failed", onError);
-      s.on?.("response.cancelled", onError);
-      s.on?.("response.output_audio.done", onDone);
-      s.on?.("error", onError);
+      s.once?.("response.done", onDone);
+      s.once?.("response.failed", onError);
+      s.once?.("response.cancelled", onError);
+      s.once?.("response.output_audio.done", onDone);
+      s.once?.("error", onError);
     });
 
-  const waitForCreated = () =>
-    new Promise<string>((resolve) => {
-      const s = session as any;
+  const waitForCreated = () => {
+    const s = session as any;
+    return new Promise<string>((resolve) => {
       const onCreated = (event?: { response?: { id?: string } }) => {
         const id = event?.response?.id;
         s.off?.("response.created", onCreated);
         resolve(id ?? "");
       };
-      s.on?.("response.created", onCreated);
+      s.once?.("response.created", onCreated);
     });
+  };
 
   let attempt = 0;
+  let lastError: Error | null = null;
   while (attempt < 2) {
     await tracker.waitForIdle();
     tracker.cancelActive();
+    // Register listener BEFORE sending event to avoid race condition
     const createdPromise = waitForCreated();
+    await Promise.resolve(); // Ensure listener is attached before sending
     session.transport.sendEvent({
       type: "response.create",
       response: {
@@ -362,16 +397,23 @@ async function sessionSay(
       const responseId = await createdPromise;
       tracker.trackResponse(responseId);
       await awaitResponse(responseId, options?.timeoutMs ?? 90000);
-      break;
+      return; // Success - exit function
     } catch (error) {
+      lastError =
+        error instanceof Error ? error : new Error(String(error ?? "unknown"));
       console.warn("[realtime] response attempt failed, retrying once:", error);
       clearTransportAudioState(session);
       tracker.waitForIdle().catch(() => {});
       attempt += 1;
-      await new Promise((resolve) => setTimeout(resolve, 300));
+      // Exponential backoff: 300ms, 600ms, 1200ms...
+      const backoffMs = 300 * Math.pow(2, attempt - 1);
+      await new Promise((resolve) => setTimeout(resolve, backoffMs));
       continue;
     }
   }
+  // All retries exhausted - throw error instead of silently continuing
+  console.error("[realtime] Failed to deliver prompt after all retries");
+  throw lastError ?? new Error("Failed to deliver prompt to agent");
 }
 
 async function waitForParticipantExchange(
@@ -470,12 +512,10 @@ export async function startSession(ephemeralKey: string) {
         },
   });
   const audioBinding = TEXT_ONLY
-    ? { start() {}, stop() {} }
+    ? { start() {}, stop() {}, waitForPlaybackIdle: async () => {} }
     : createAlsaAudioBinding(session);
   const waitForPlaybackIdle = async () => {
-    if (typeof audioBinding.waitForPlaybackIdle === "function") {
-      await audioBinding.waitForPlaybackIdle();
-    }
+    await audioBinding.waitForPlaybackIdle?.();
   };
   const responseTracker = createResponseTracker(session);
   let historyListener: ((item: unknown) => void) | null = null;
@@ -622,10 +662,15 @@ export async function startSession(ephemeralKey: string) {
         summary: "no_input",
         score: 0,
       };
-    const transcriptNote = participantUtterances
+    const fullTranscriptNote = participantUtterances
       .map((u, idx) => `${idx + 1}: ${u}`)
-      .join(" | ")
-      .slice(0, 1800);
+      .join(" | ");
+    const transcriptNote = fullTranscriptNote.slice(0, 1800);
+    if (fullTranscriptNote.length > 1800) {
+      console.warn(
+        `[backend] Session notes truncated from ${fullTranscriptNote.length} to 1800 chars`,
+      );
+    }
     const summaryPayload = {
       session_id: sessionId,
       plan_id: planId,

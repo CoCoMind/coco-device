@@ -8,6 +8,35 @@ BRANCH="${BRANCH:-latest-tag}"
 
 log() { echo "[update] $*"; }
 
+install_bins() {
+  log "Updating launcher scripts in /usr/local/bin"
+  install -m 755 "${INSTALL_DIR}/scripts/coco-native-agent-boot.sh" /usr/local/bin/coco-native-agent-boot.sh
+  install -m 755 "${INSTALL_DIR}/scripts/run-scheduled-session.sh" /usr/local/bin/run-scheduled-session.sh
+  install -m 755 "${INSTALL_DIR}/scripts/coco-heartbeat.sh" /usr/local/bin/coco-heartbeat.sh
+  install -m 755 "${INSTALL_DIR}/scripts/coco-update.sh" /usr/local/bin/coco-update.sh
+}
+
+install_units() {
+  log "Refreshing systemd units"
+  install -m 644 "${INSTALL_DIR}/systemd/coco-agent.service" /etc/systemd/system/coco-agent.service
+  install -m 644 "${INSTALL_DIR}/systemd/coco-agent-scheduler.service" /etc/systemd/system/coco-agent-scheduler.service
+  install -m 644 "${INSTALL_DIR}/systemd/coco-agent-scheduler.timer" /etc/systemd/system/coco-agent-scheduler.timer
+  install -m 644 "${INSTALL_DIR}/systemd/coco-heartbeat.service" /etc/systemd/system/coco-heartbeat.service
+  install -m 644 "${INSTALL_DIR}/systemd/coco-heartbeat.timer" /etc/systemd/system/coco-heartbeat.timer
+  install -m 644 "${INSTALL_DIR}/systemd/coco-update.service" /etc/systemd/system/coco-update.service
+  install -m 644 "${INSTALL_DIR}/systemd/coco-update.timer" /etc/systemd/system/coco-update.timer
+
+  sed -i "s/^User=.*/User=${RUN_USER}/" \
+    /etc/systemd/system/coco-agent.service \
+    /etc/systemd/system/coco-agent-scheduler.service \
+    /etc/systemd/system/coco-heartbeat.service || true
+  sed -i "s/^Group=.*/Group=${RUN_USER}/" /etc/systemd/system/coco-heartbeat.service || true
+  sed -i "s/^Environment=COCO_RUN_USER=.*/Environment=COCO_RUN_USER=${RUN_USER}/" /etc/systemd/system/coco-update.service || true
+
+  systemctl daemon-reload
+  systemctl enable coco-agent-scheduler.timer coco-heartbeat.timer coco-update.timer
+}
+
 cd "$INSTALL_DIR"
 target_ref="${BRANCH}"
 if [[ "${BRANCH}" == "latest-tag" ]]; then
@@ -18,6 +47,8 @@ fi
 log "Fetching latest ${target_ref}"
 sudo -u "$RUN_USER" git fetch --all --tags
 sudo -u "$RUN_USER" git reset --hard "origin/${target_ref}" || sudo -u "$RUN_USER" git reset --hard "${target_ref}"
+install_bins
+install_units
 log "Installing npm dependencies"
 sudo -u "$RUN_USER" npm install
 if command -v node >/dev/null 2>&1 && [[ -f "${INSTALL_DIR}/package.json" ]]; then
@@ -30,4 +61,6 @@ fi
 log "Restarting services"
 systemctl restart coco-agent.service
 systemctl restart coco-agent-scheduler.timer
+systemctl restart coco-heartbeat.timer
+systemctl restart coco-update.timer
 log "Update complete"

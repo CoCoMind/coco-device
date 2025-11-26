@@ -1,0 +1,14 @@
+[Unit]
+Description=Coco OTA updater
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/pi/coco-device
+ExecStart=/usr/local/bin/coco-update.sh
+Environment=COCO_RUN_USER=pi
+Nice=10
+
+[Install]
+WantedBy=multi-user.target

@@ -1,67 +1,313 @@
 # Coco Device Runtime Specification (Raspberry Pi)
 
-## Device Overview
-- Purpose: run the Coco cognitive coaching agent with realtime speech I/O, collect sentiment and session metadata, and send structured summaries to the backend.
-- Identity: configured via `.env` (`COCO_USER_EXTERNAL_ID`, `COCO_PARTICIPANT_ID`, `COCO_DEVICE_ID`) and backend URL/token (`COCO_BACKEND_URL`, `INGEST_SERVICE_TOKEN`) at `~/coco-device/.env`.
-- Agent entrypoint: `/usr/local/bin/coco-native-agent-boot.sh` → `npm start` in `~/coco-device` (`COCO_AGENT_MODE` defaults to `mock` unless overridden). Typically invoked by the scheduler; the service unit can be started manually for ad-hoc runs.
+## Overview
 
-## Boot & Autostart
-- `coco-agent.service` (`/etc/systemd/system/coco-agent.service`) starts the agent on boot after network-online; restarts on failure with 5s backoff.
-- Wi-Fi provisioning loop starts on boot via `wifi-provision.service` and continuously watches for USB-based Wi-Fi credentials.
-- Twice-daily scheduled sessions run via `coco-agent-scheduler.timer` at 09:00 and 15:00 (`coco-agent-scheduler.service` → `scripts/run-scheduled-session.sh`).
-- Heartbeats: `coco-heartbeat.timer` (every 5 minutes with 60s jitter, persistent) triggers `coco-heartbeat.service` which runs `/usr/local/bin/coco-heartbeat.sh` as the install user (default `pi`) to POST `/internal/heartbeat`; runs even if agent/network are unhealthy.
+Coco is a cognitive coaching agent that runs on Raspberry Pi devices, providing real-time voice-based coaching sessions to participants. The system uses OpenAI's Realtime API for speech synthesis and recognition, with a structured curriculum of cognitive activities.
 
-## Wi-Fi Provisioning (USB → wpa_supplicant)
-- Daemon: `/usr/local/bin/wifi-provision.sh`, managed by `wifi-provision.service` (Wants network-pre; loops every `LOOP_DELAY_SECONDS`, default 15s).
-- Watches USB mounts (`/media`, `/run/media`, `/mnt` plus detected USB roots) for `wifi.conf`.
-- `wifi.conf` keys: `ssid`, `psk` (optional), `hidden` (1/true/yes), `priority`.
-- Flow: disable existing SSID entry, add/select new network via `wpa_cli`, set SSID/PSK/hidden/priority, wait up to `CONNECT_TIMEOUT_SECONDS` (default 45s) for connection. On success, rename to `.applied-<timestamp>` and save config; on failure, rename to `.failed-<timestamp>`, restore previous network if disabled.
-- UX: logs to `/var/log/coco/wifi-provision.log`; announces USB presence/no-conf/connect/fail via `espeak`→`aplay` (or `pico2wave`→`aplay`) on `AUDIO_DEVICE` (default `plughw:3,0`); logs if TTS unavailable. Stores last SSID in `/var/lib/wifi-provision/last-connected-ssid`.
+### Key Capabilities
+- **Real-time voice interaction** via OpenAI Realtime API (WebSocket)
+- **Scheduled coaching sessions** (twice daily by default)
+- **Heartbeat monitoring** for fleet health tracking
+- **OTA updates** for automatic software deployment
+- **Sentiment analysis** of participant responses
+- **Backend telemetry** for session tracking and analytics
 
-## Scheduled Session Runner
-- Timer → oneshot service: `coco-agent-scheduler.timer` (09:00, 15:00, persistent) triggers `coco-agent-scheduler.service` which runs `scripts/run-scheduled-session.sh` as the install user. The dedicated `coco-agent.service` exists for manual/ad-hoc runs; it is not enabled by default.
-- Concurrency: `flock` lock at `/tmp/coco-session-runner.lock` prevents overlaps.
-- Network gating: probes `https://www.google.com/generate_204`, falls back to `ping 1.1.1.1`; retries up to `MAX_NETWORK_ATTEMPTS` (default 12) with `NETWORK_RETRY_SECONDS` (default 300s). Skips session if still offline.
-- Command: `${SESSION_CMD:-/usr/local/bin/coco-native-agent-boot.sh}` (overrideable); loads `.env` if present.
-- Logging: appends to `/var/log/coco/session-scheduler.log` with start/end timestamps, status, duration_seconds, sentiment_summary snapshot; includes agent stdout/stderr. Agent service logs to `/var/log/coco/agent.log`.
+---
 
-## Agent Runtime (Realtime path)
-- Entrypoint `src/runAgent.ts` → `startSession` (`src/agent.ts`); default model `gpt-4o-mini-realtime-preview-2024-12-17` unless `REALTIME_MODEL` set.
-- Capabilities:
-  - Speech synthesis: Realtime responses with `OPENAI_VOICE` (default `verse`); text-only if `OPENAI_OUTPUT_MODALITY=text`.
-  - Speech recognition: ALSA PCM capture/playback via `arecord`/`aplay` (`src/audioIO.ts`), rate default 24000 Hz, mono, `S16_LE`.
-  - Conversation: system prompt enforces 6-step ~10-minute curriculum; uses tool `curriculum.build_plan` sourced from `src/content/activities.json`.
-  - Sentiment: post-run transcript scored via Responses API (`gpt-4o-mini` default) when `OPENAI_API_KEY` present; fallback sentinel if no speech.
-  - Telemetry: `sendSessionSummary` posts to `{COCO_BACKEND_URL}/internal/ingest/session_summary` with bearer `INGEST_SERVICE_TOKEN`/`COCO_BACKEND_API_KEY`; payload includes IDs, duration, turn_count, sentiment.
-- Resilience: turn and listen timeouts; transport interrupt after each turn; runs even without participant audio (still posts summary).
-- Mock mode: `src/mockAgent.ts` for offline synthesis/mic capture, logs to `agent-activity.log`, still posts summary.
+## Architecture
 
-## Network & UX Behaviors
-- Wi-Fi provisioning announces USB/no-conf/connect/fail; marks configs `.applied`/`.failed` to avoid repeated attempts; keeps previous network alive on failure.
-- Agent service depends on `network-online.target`; scheduler retries connectivity before session.
-- Audio stack assumes ALSA; Pulse connection failures may appear in logs on headless runs.
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                         Raspberry Pi                            │
+├─────────────────────────────────────────────────────────────────┤
+│  systemd timers                                                 │
+│  ├── coco-agent-scheduler.timer (09:00, 15:00)                  │
+│  ├── coco-heartbeat.timer (every 5 min)                         │
+│  └── coco-update.timer (daily 02:30)                            │
+├─────────────────────────────────────────────────────────────────┤
+│  Agent Runtime (Node.js/TypeScript)                             │
+│  ├── src/runAgent.ts      → Entry point                         │
+│  ├── src/agent.ts         → Session management, conversation    │
+│  ├── src/audioIO.ts       → ALSA audio capture/playback         │
+│  ├── src/planner.ts       → Activity curriculum builder         │
+│  ├── src/backend.ts       → Backend API client                  │
+│  └── src/tools.ts         → Agent tools (telemetry)             │
+├─────────────────────────────────────────────────────────────────┤
+│  Scripts                                                        │
+│  ├── coco-native-agent-boot.sh  → Agent launcher                │
+│  ├── run-scheduled-session.sh   → Scheduler entry point         │
+│  ├── coco-heartbeat.sh          → Health reporting              │
+│  └── coco-update.sh             → OTA update script             │
+└─────────────────────────────────────────────────────────────────┘
+              │                              │
+              ▼                              ▼
+    ┌─────────────────┐           ┌─────────────────────┐
+    │  OpenAI API     │           │  Coco Backend       │
+    │  - Realtime WS  │           │  - /internal/ingest │
+    │  - Responses    │           │  - /internal/heartbeat│
+    └─────────────────┘           └─────────────────────┘
+```
+
+---
+
+## Device Identity & Configuration
+
+### Environment Variables (`.env`)
+
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `OPENAI_API_KEY` | Yes | OpenAI API key for Realtime and sentiment APIs |
+| `COCO_BACKEND_URL` | Yes | Backend server URL (e.g., `https://coco-backend.fly.dev`) |
+| `INGEST_SERVICE_TOKEN` | Yes | Bearer token for backend authentication |
+| `COCO_DEVICE_ID` | Yes | Unique device identifier |
+| `COCO_USER_EXTERNAL_ID` | Yes | User/participant external ID |
+| `COCO_PARTICIPANT_ID` | No | Participant ID (defaults to user external ID) |
+| `COCO_AGENT_MODE` | No | `realtime` (default) or `mock` for testing |
+
+### Audio Configuration
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `COCO_AUDIO_INPUT_DEVICE` | `plughw:3,0` | ALSA input device |
+| `COCO_AUDIO_OUTPUT_DEVICE` | `plughw:3,0` | ALSA output device |
+| `COCO_AUDIO_SAMPLE_RATE` | `24000` | Audio sample rate (Hz) |
+| `COCO_AUDIO_CHANNELS` | `1` | Mono audio |
+| `COCO_AUDIO_SAMPLE_FORMAT` | `S16_LE` | 16-bit signed little-endian |
+| `COCO_AUDIO_DISABLE` | `0` | Set to `1` for text-only mode |
+
+### Session Timing
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `COCO_INTRO_RESPONSE_WINDOW_MS` | `8000` | Wait time for intro response |
+| `COCO_MIN_LISTEN_WINDOW_MS` | `12000` | Minimum participant listen time |
+| `COCO_MAX_LISTEN_WINDOW_MS` | `20000` | Maximum participant listen time |
+| `COCO_FINAL_RESPONSE_WINDOW_MS` | `8000` | Wait time for final response |
+| `COCO_LISTEN_GRACE_MS` | `2000` | Grace period before timeout starts |
+
+### Backend Communication
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `COCO_BACKEND_TIMEOUT_MS` | `10000` | Request timeout |
+| `COCO_BACKEND_RETRIES` | `1` | Number of retry attempts |
+
+---
+
+## Systemd Services
+
+### Service Units
+
+| Service | Purpose | Trigger |
+|---------|---------|---------|
+| `coco-agent.service` | Manual/ad-hoc agent runs | Manual start |
+| `coco-agent-scheduler.service` | Scheduled session runner | Timer |
+| `coco-heartbeat.service` | Health reporting | Timer |
+| `coco-update.service` | OTA updates | Timer |
+
+### Timer Schedule
+
+| Timer | Schedule | Jitter | Purpose |
+|-------|----------|--------|---------|
+| `coco-agent-scheduler.timer` | 09:00, 15:00 | None | Twice-daily sessions |
+| `coco-heartbeat.timer` | Every 5 min | 60s | Health monitoring |
+| `coco-update.timer` | 02:30 daily | 15 min | Software updates |
+
+---
+
+## Agent Session Flow
+
+### Startup Sequence
+1. `runAgent.ts` fetches ephemeral key from OpenAI
+2. Creates `RealtimeSession` with WebSocket transport
+3. Initializes ALSA audio binding (or text-only stub)
+4. Builds activity plan from `activities.json`
+5. Connects to OpenAI Realtime API
+
+### Session Execution
+1. **Intro** - Agent greets participant, waits for response
+2. **Activities** (6 steps) - Curriculum-driven cognitive exercises:
+   - Orientation (~1 min)
+   - Language (~2 min)
+   - Memory (~2 min)
+   - Attention (~2 min)
+   - Reminiscence (~2 min)
+   - Closing (~1 min)
+3. **Wrap-up** - Final message, sentiment analysis
+4. **Summary** - POST to backend with session metadata
+
+### Error Handling & Resilience
+
+| Scenario | Behavior |
+|----------|----------|
+| No participant response | Agent continues with encouragement |
+| Network timeout | Exponential backoff retry (300ms, 600ms, 1200ms) |
+| Backend POST failure | Logs error, continues session |
+| "Stop"/"end session" detected | Graceful early termination |
+| OpenAI API error | Retry once, then throw |
+
+---
 
 ## Backend Integration
-- Endpoint: `POST /internal/ingest/session_summary` on `COCO_BACKEND_URL` with bearer token.
-- Payload: `session_id`, `plan_id`, `user_external_id`, `participant_id`, `device_id`, `label`, `started_at`, `ended_at`, `duration_seconds`, `turn_count`, `sentiment_summary`, `sentiment_score`, optional `notes`.
-- Telemetry tool stub logs JSON to stdout; can be replaced in code for richer sinks (not modified on device).
-- Heartbeat: `/usr/local/bin/coco-heartbeat.sh` builds the authoritative JSON (`device_id`, `agent_version`, `connectivity`, network block with `interface`/`ip`/`signal_rssi`/`latency_ms`, `agent_status`, `last_session_at`) and posts to `{COCO_BACKEND_URL}/internal/heartbeat` with bearer `INGEST_SERVICE_TOKEN`; retries once and logs to `/var/log/coco/heartbeat.log`.
 
-## Heartbeat Details
-- Config sources: `.env` (`COCO_DEVICE_ID`, `COCO_BACKEND_URL`, `INGEST_SERVICE_TOKEN`) and `/etc/coco-agent-version` (string version). Missing fields log “missing config” and still emit a degraded/crashed heartbeat; POST is skipped only if URL/token absent.
-- Connectivity detection: `wifi` if `wlan0` has IP (RSSI via `iw dev wlan0 link`), `lte` if `wwan0`/`usb0` has IP, else `offline`; latency via `curl https://www.google.com/generate_204` (ms rounded).
-- Agent status mapping: `systemctl is-active coco-agent.service` → `ok`/`degraded`/`crashed` per active/activating|deactivating/failed/other.
-- State files: `/var/lib/coco/last_session_at` (updated by scheduler), `/var/lib/wifi-provision/*` (Wi-Fi state), `/var/log/coco/heartbeat.log` (install user, 644), `/etc/coco-agent-version` (written by install/update).
-- Systemd: `coco-heartbeat.service` oneshot as install user; `coco-heartbeat.timer` `OnBootSec=1min`, `OnUnitActiveSec=5min`, `RandomizedDelaySec=60`, `Persistent=true`.
+### Session Summary Endpoint
+`POST {COCO_BACKEND_URL}/internal/ingest/session_summary`
 
-## Configuration Surface (env)
-- Core: `OPENAI_API_KEY`/`OPENAI_EPHEMERAL_KEY`, `COCO_AGENT_MODE`, `COCO_BACKEND_URL`, `INGEST_SERVICE_TOKEN`, IDs (`COCO_USER_EXTERNAL_ID`, `COCO_PARTICIPANT_ID`, `COCO_DEVICE_ID`), `OPENAI_OUTPUT_MODALITY`, `OPENAI_VOICE`, `REALTIME_MODEL`.
-- Audio: `COCO_AUDIO_SAMPLE_RATE`, `COCO_AUDIO_CHANNELS`, `COCO_AUDIO_SAMPLE_FORMAT`, `COCO_AUDIO_INPUT_DEVICE`, `COCO_AUDIO_OUTPUT_DEVICE`.
-- Scheduler: `NETWORK_RETRY_SECONDS`, `MAX_NETWORK_ATTEMPTS`, `SESSION_CMD`, `LOG_FILE`, `LOCK_FILE`.
-- Wi-Fi provisioning: `WLAN_IFACE`, `LOOP_DELAY_SECONDS`, `CONNECT_TIMEOUT_SECONDS`, `AUDIO_DEVICE` (overrideable via systemd drop-ins).
+**Payload:**
+```json
+{
+  "session_id": "uuid",
+  "plan_id": "uuid",
+  "user_external_id": "string",
+  "participant_id": "string",
+  "device_id": "string",
+  "label": "string",
+  "started_at": "ISO8601",
+  "ended_at": "ISO8601",
+  "duration_seconds": 600,
+  "turn_count": 10,
+  "sentiment_summary": "positive|neutral|negative|no_input",
+  "sentiment_score": 0.85,
+  "notes": "transcript excerpt (max 1800 chars)"
+}
+```
 
-## Safety & Guardrails
-- Non-overlapping scheduled runs via `flock`; services restart on failure (`Restart=always` for Wi-Fi, `Restart=on-failure` for agent).
-- Network gating prevents offline scheduled sessions; Wi-Fi provisioning restores prior network on new-credential failure and tags bad configs.
-- Voice UX optional; logs warn if TTS unavailable; device keeps running.
-- Agent prompt enforces supportive, concise interaction and honors “skip”/fatigue cues; sentiment scoring is best-effort.
+### Heartbeat Endpoint
+`POST {COCO_BACKEND_URL}/internal/heartbeat`
+
+**Payload:**
+```json
+{
+  "device_id": "string",
+  "agent_version": "string",
+  "connectivity": "wifi|lte|offline",
+  "network": {
+    "interface": "wlan0",
+    "ip": "192.168.1.100",
+    "signal_rssi": -50,
+    "latency_ms": 25
+  },
+  "agent_status": "ok|degraded|crashed",
+  "last_session_at": "ISO8601"
+}
+```
+
+---
+
+## File System Layout
+
+### Application Files
+```
+~/coco-device/
+├── .env                    # Device configuration (gitignored)
+├── .env.example            # Configuration template
+├── src/                    # TypeScript source
+├── scripts/                # Shell scripts
+├── systemd/                # Service unit files
+├── tests/                  # Test suite
+└── config/                 # Documentation
+```
+
+### Runtime Files
+```
+/etc/coco-agent-version           # Installed version string
+/var/log/coco/
+├── agent.log                     # Agent runtime logs
+├── session-scheduler.log         # Scheduler logs
+└── heartbeat.log                 # Heartbeat logs
+/var/lib/coco/
+└── last_session_at               # Timestamp of last session
+/tmp/coco-session-runner.lock     # Concurrency lock
+```
+
+### Installed Scripts
+```
+/usr/local/bin/
+├── coco-native-agent-boot.sh
+├── coco-heartbeat.sh
+└── coco-update.sh
+```
+
+---
+
+## Multi-Device Deployment (5-10 Devices)
+
+### Per-Device Configuration
+Each device requires unique values in `.env`:
+- `COCO_DEVICE_ID` - Unique device identifier
+- `COCO_USER_EXTERNAL_ID` - Associated user/participant
+- `COCO_PARTICIPANT_ID` - Participant number (optional)
+
+### Shared Configuration
+These can be identical across devices:
+- `OPENAI_API_KEY`
+- `COCO_BACKEND_URL`
+- `INGEST_SERVICE_TOKEN`
+
+### Fleet Considerations
+
+| Concern | Current State | Recommendation |
+|---------|--------------|----------------|
+| Config provisioning | Manual `.env` setup | Create provisioning script |
+| Log aggregation | Local logs only | Add centralized logging |
+| Update rollout | All devices simultaneously | Implement canary groups |
+| Monitoring | 5-min heartbeat | Consider 1-2 min for faster detection |
+| Rate limiting | None | Add per-device throttling |
+
+---
+
+## Security Considerations
+
+### Credential Storage
+- API keys stored in `.env` (gitignored)
+- No encryption at rest
+- Recommend: Use secrets manager for production
+
+### Network Security
+- All API calls over HTTPS
+- Bearer token authentication
+- No certificate pinning
+
+### Audio Privacy
+- Transcripts stored in logs (plaintext)
+- Sentiment analysis processes participant speech
+- Recommend: Implement log rotation and encryption
+
+---
+
+## Troubleshooting
+
+### Common Issues
+
+| Symptom | Likely Cause | Resolution |
+|---------|-------------|------------|
+| No audio | Wrong ALSA device | Check `aplay -l`, update `COCO_AUDIO_*` |
+| Session hangs | Network timeout | Check connectivity, increase timeouts |
+| Heartbeat failing | Backend unreachable | Verify `COCO_BACKEND_URL` and token |
+| Lock contention | Concurrent sessions | Check for zombie processes |
+| OTA fails | Git conflicts | Manual `git reset --hard` |
+
+### Log Locations
+- Agent: `/var/log/coco/agent.log`
+- Scheduler: `/var/log/coco/session-scheduler.log`
+- Heartbeat: `/var/log/coco/heartbeat.log`
+- Systemd: `journalctl -u coco-agent.service`
+
+### Health Checks
+```bash
+# Check all timers
+systemctl list-timers 'coco-*'
+
+# Check agent status
+systemctl status coco-agent.service
+
+# Test backend connectivity
+curl -X POST ${COCO_BACKEND_URL}/internal/heartbeat \
+  -H "Authorization: Bearer ${INGEST_SERVICE_TOKEN}" \
+  -H "Content-Type: application/json" \
+  -d '{"device_id":"test"}'
+
+# Test audio devices
+arecord -D plughw:3,0 -f S16_LE -r 24000 -c 1 -d 3 test.wav
+aplay -D plughw:3,0 test.wav
+```

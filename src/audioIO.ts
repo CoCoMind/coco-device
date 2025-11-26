@@ -202,23 +202,22 @@ export function createAlsaAudioBinding(session: RealtimeSession): AudioBinding {
   return {
     start() {
       if (!playback) {
-      playback = safeSpawn(
-        "aplay",
-        "aplay",
-        playbackArgs,
-        { stdio: ["pipe", "ignore", "inherit"] },
-      );
-      playbackBackpressure = false;
-      playbackQueue.length = 0;
-      pendingPlaybackMs = 0;
-      const playbackStdin = playback?.stdin;
-      if (playbackStdin) {
-        playbackStdin.setMaxListeners?.(0);
-        playbackStdin.on("error", (error: NodeJS.ErrnoException) => {
-          if (error?.code !== "EPIPE") {
+        playback = safeSpawn("aplay", "aplay", playbackArgs, {
+          stdio: ["pipe", "ignore", "inherit"],
+        });
+        playbackBackpressure = false;
+        playbackQueue.length = 0;
+        pendingPlaybackMs = 0;
+        const playbackStdin = playback?.stdin;
+        if (playback && playbackStdin) {
+          playbackStdin.setMaxListeners?.(0);
+          playbackStdin.on("error", (error: NodeJS.ErrnoException) => {
+            if (error?.code !== "EPIPE") {
               console.error("[alsa] playback stdin error:", error);
             }
           });
+        } else if (!playback) {
+          console.warn("[alsa] playback unavailable; skipping audio output.");
         }
       }
       if (playback && !listenerAttached) {
@@ -227,22 +226,25 @@ export function createAlsaAudioBinding(session: RealtimeSession): AudioBinding {
       }
 
       if (!capture && !CAPTURE_DISABLED) {
-        capture = safeSpawn(
-          "arecord",
-          "arecord",
-          captureArgs,
-          { stdio: ["ignore", "pipe", "inherit"] },
-        );
-        capture?.stdout?.on("data", (chunk: Buffer) => {
-          if (Date.now() < muteCaptureUntil) {
-            return;
-          }
-          try {
-            session.sendAudio(bufferToArrayBuffer(chunk));
-          } catch (error) {
-            console.error("[alsa] Failed to send microphone audio:", error);
-          }
+        capture = safeSpawn("arecord", "arecord", captureArgs, {
+          stdio: ["ignore", "pipe", "inherit"],
         });
+        if (!capture) {
+          console.warn(
+            "[alsa] Microphone capture unavailable; participant speech will be skipped.",
+          );
+        } else {
+          capture.stdout?.on("data", (chunk: Buffer) => {
+            if (Date.now() < muteCaptureUntil) {
+              return;
+            }
+            try {
+              session.sendAudio(bufferToArrayBuffer(chunk));
+            } catch (error) {
+              console.error("[alsa] Failed to send microphone audio:", error);
+            }
+          });
+        }
       }
     },
     stop() {

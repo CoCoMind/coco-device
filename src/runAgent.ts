@@ -1,35 +1,51 @@
 import { REALTIME_MODEL, startSession } from "./agent";
 import { runMockAgentSession } from "./mockAgent";
 
+function isTextOnlyMode(): boolean {
+  const modality = (process.env.OPENAI_OUTPUT_MODALITY ?? "").toLowerCase();
+  return modality === "text" || process.env.COCO_AUDIO_DISABLE === "1";
+}
+
 async function createEphemeralKey(): Promise<string> {
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) {
     throw new Error("Set OPENAI_API_KEY to mint a realtime session key.");
   }
 
-  const res = await fetch("https://api.openai.com/v1/realtime/client_secrets", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      session: {
-        type: "realtime",
-        model: REALTIME_MODEL,
-        output_modalities:
-          process.env.OPENAI_OUTPUT_MODALITY === "text"
-            ? ["text"]
-            : ["audio"],
-        audio: {
-          input: undefined,
-          output: {
-            voice: process.env.OPENAI_VOICE ?? "verse",
-          },
-        },
+  const abortAfterMs = Number(
+    process.env.COCO_EPHEMERAL_KEY_TIMEOUT_MS ?? "15000",
+  );
+  const controller = new AbortController();
+  const timer = setTimeout(() => {
+    controller.abort(new Error("ephemeral key request timed out"));
+  }, Math.max(1000, abortAfterMs));
+
+  const res = await fetch(
+    "https://api.openai.com/v1/realtime/client_secrets",
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
       },
-    }),
-  });
+      body: JSON.stringify({
+        session: {
+          type: "realtime",
+          model: REALTIME_MODEL,
+          output_modalities: isTextOnlyMode() ? ["text"] : ["audio"],
+          audio: isTextOnlyMode()
+            ? undefined
+            : {
+                input: undefined,
+                output: {
+                  voice: process.env.OPENAI_VOICE ?? "verse",
+                },
+              },
+        },
+      }),
+      signal: controller.signal,
+    },
+  ).finally(() => clearTimeout(timer));
 
   if (!res.ok) {
     const errText = await res.text().catch(() => "");

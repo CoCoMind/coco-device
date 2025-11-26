@@ -1,221 +1,365 @@
-# Coco Device Headless Test Plan (MVP v0)
+# Coco Device Test Plan
 
-Goal: Validate all device subsystems without real speaker/mic I/O or realtime WS audio. Manual-only items remaining: physical speaker output and live arecord/aplay loop with OpenAI Realtime.
+## Overview
 
-## Conventions
-- Repo: `~/coco-device`
-- Temp assets: `~/coco-device/tests-temp/`
-- Run as the install user unless noted. Use `sudo` where required.
-- Set `COCO_AGENT_MODE=mock` for headless agent runs.
+This test plan covers validation of the Coco cognitive coaching device software across:
+- **Unit tests** - TypeScript/Node.js component testing
+- **Integration tests** - Systemd services, backend communication
+- **Manual tests** - Audio I/O, real-time sessions
 
-## 0) Prep
+---
+
+## Quick Start
+
 ```bash
 cd ~/coco-device
-mkdir -p tests-temp/{logs,backend,bin,usb,usb2}
-export COCO_REPO_DIR=~/coco-device
-export COCO_RUN_USER=$USER
-export COCO_AGENT_MODE=mock
+
+# Run all automated tests
+npm test
+
+# Run individual test suites
+npm run test:agent     # Agent logic tests (45 tests)
+npm run test:backend   # Backend API tests (9 tests)
+npm run test:planner   # Activity planner tests (14 tests)
+
+# Type checking only
+npm run typecheck
 ```
 
-## 1) Systemd / Boot Flow
-- Verify units:
-  ```bash
-  systemctl status coco-agent.service           # manual-only; expected inactive
-  systemctl status coco-agent-scheduler.timer  # enabled/active
-  systemctl status coco-heartbeat.timer        # enabled/active
-  systemctl status wifi-provision.service      # enabled/active
-  ```
-- Env/version load:
-  ```bash
-  sudo cat /etc/coco-agent-version
-  sudo -u $USER bash -c 'cd ~/coco-device && . ./.env && echo $COCO_DEVICE_ID'
-  ```
-- Agent double-start guard:
-  ```bash
-  sudo systemctl start coco-agent.service
-  sudo systemctl start coco-agent.service    # second start should no-op quickly
-  sudo tail -n 40 /var/log/coco/agent.log
-  ```
-- Scheduler vs agent concurrency:
-  ```bash
-  # Start a scheduler run with a sleep-wrapped session command to hold the lock
-  SESSION_CMD="/bin/sh -c 'sleep 10'" ./scripts/run-scheduled-session.sh &
-  sleep 2
-  sudo systemctl start coco-agent.service    # should be blocked by lockfile
-  wait
-  grep -E "already running|lock" /var/log/coco/session-scheduler.log
-  ```
+---
 
-## 2) Wi-Fi Provisioning (Mocked)
-- Mock wpa_cli/iwgetid to avoid real Wi-Fi:
-  ```bash
-  cat > tests-temp/bin/wpa_cli <<'SH'
-  #!/usr/bin/env bash
-  echo "network id/ssid/BSSID/flags"
-  echo "0\tTestSSID\tany\t[CURRENT]"
-  case "$1" in
-    add_network) echo 1;;
-    set_network) exit 0;;
-    enable_network|select_network|reassociate|disable_network|remove_network|save_config) exit 0;;
-    status) echo -e "wpa_state=COMPLETED\nssid=TestSSID";;
-    list_networks) echo -e "0\tTestSSID\tany\t[CURRENT]";;
-    *) exit 0;;
-  esac
-  SH
-  cat > tests-temp/bin/iwgetid <<'SH'
-  #!/usr/bin/env bash
-  echo "TestSSID"
-  SH
-  chmod +x tests-temp/bin/*
-  export PATH="$PWD/tests-temp/bin:$PATH"
-  ```
-- Valid wifi.conf:
-  ```bash
-  cat > tests-temp/usb/wifi.conf <<'EOF'
-  ssid=ValidSSID
-  psk=goodpass
-  hidden=0
-  priority=1
-  EOF
-  sudo LOG_FILE=/var/log/coco/wifi-provision.log USB_SEARCH_PATHS="tests-temp/usb" WLAN_IFACE=wlan0 CONNECT_TIMEOUT_SECONDS=3 ./scripts/wifi-provision.sh &
-  sleep 5; pkill -f wifi-provision.sh
-  ls tests-temp/usb | grep applied
-  sudo cat /var/lib/wifi-provision/last-connected-ssid
-  sudo tail -n 50 /var/log/coco/wifi-provision.log
-  ```
-- Invalid wifi.conf (force wpa_cli fail):
-  ```bash
-  mv tests-temp/bin/wpa_cli tests-temp/bin/wpa_cli.ok
-  cat > tests-temp/bin/wpa_cli <<'SH'
-  #!/usr/bin/env bash
-  exit 1
-  SH
-  chmod +x tests-temp/bin/wpa_cli
-  cat > tests-temp/usb2/wifi.conf <<'EOF'
-  ssid=BadSSID
-  psk=badpass
-  EOF
-  sudo LOG_FILE=/var/log/coco/wifi-provision.log USB_SEARCH_PATHS="tests-temp/usb2" CONNECT_TIMEOUT_SECONDS=2 ./scripts/wifi-provision.sh &
-  sleep 5; pkill -f wifi-provision.sh
-  ls tests-temp/usb2 | grep failed
-  sudo tail -n 50 /var/log/coco/wifi-provision.log
-  ```
+## Test Suites
 
-## 3) Scheduler
-- Offline gating:
-  ```bash
-  cat > tests-temp/bin/curl <<'SH'
-  #!/usr/bin/env bash
-  exit 28   # timeout
-  SH
-  cat > tests-temp/bin/ping <<'SH'
-  #!/usr/bin/env bash
-  exit 1
-  SH
-  chmod +x tests-temp/bin/{curl,ping}
-  PATH="$PWD/tests-temp/bin:$PATH" LOG_FILE=/var/log/coco/session-scheduler.log CONNECTIVITY_PROBE=https://bad ./scripts/run-scheduled-session.sh
-  grep "session will be skipped" /var/log/coco/session-scheduler.log
-  ```
-- Online run + lock:
-  ```bash
-  cat > tests-temp/bin/curl <<'SH'
-  #!/usr/bin/env bash
-  echo 204
-  exit 0
-  SH
-  cat > tests-temp/bin/ping <<'SH'
-  #!/usr/bin/env bash
-  exit 0
-  SH
-  chmod +x tests-temp/bin/{curl,ping}
-  PATH="$PWD/tests-temp/bin:$PATH" SESSION_CMD=/bin/true ./scripts/run-scheduled-session.sh
-  sudo cat /var/lib/coco/last_session_at
-  # Immediate rerun to hit lock
-  PATH="$PWD/tests-temp/bin:$PATH" SESSION_CMD=/bin/true ./scripts/run-scheduled-session.sh
-  grep "already running" /var/log/coco/session-scheduler.log
-  ```
+### 1. Agent Tests (`tests/agent.test.ts`)
 
-## 4) Agent (Mock Mode, Summary Validation)
-- Run mock session headless:
-  ```bash
-  export COCO_AGENT_MODE=mock
-  /usr/local/bin/coco-native-agent-boot.sh
-  ```
-  Expect exit 0, agent.log/session-scheduler.log entries, last_session_at updated.
-- Validate summary fields (requires mock backend in section 5):
-  Inspect mock backend log for fields: session_id, plan_id, started_at, ended_at, duration_seconds, turn_count, sentiment_summary, sentiment_score, device_id/user/participant/label, notes (optional). Confirm plan ran all steps (turn_count >= number of plan steps).
+**Coverage:** 45 tests
 
-## 5) Mock Backend (Session + Heartbeat)
-- Start mock backend:
-  ```bash
-  cat > tests-temp/backend/mock-backend.py <<'PY'
-  from http.server import BaseHTTPRequestHandler, HTTPServer
-  import json, sys
-  class H(BaseHTTPRequestHandler):
-      def do_POST(self):
-          length = int(self.headers.get('content-length',0))
-          body = self.rfile.read(length).decode()
-          print(self.path, body, file=sys.stderr, flush=True)
-          self.send_response(200); self.end_headers()
-  HTTPServer(('0.0.0.0', 8081), H).serve_forever()
-  PY
-  python3 tests-temp/backend/mock-backend.py 2>tests-temp/backend/requests.log &
-  MOCKPID=$!
-  export COCO_BACKEND_URL=http://127.0.0.1:8081
-  export INGEST_SERVICE_TOKEN=token
-  export COCO_DEVICE_ID=testdev
-  export COCO_USER_EXTERNAL_ID=u1
-  export COCO_PARTICIPANT_ID=p1
-  export OPENAI_API_KEY=dummy
-  SESSION_CMD="/usr/bin/env COCO_BACKEND_URL=$COCO_BACKEND_URL INGEST_SERVICE_TOKEN=$INGEST_SERVICE_TOKEN COCO_AGENT_MODE=mock /usr/local/bin/coco-native-agent-boot.sh" ./scripts/run-scheduled-session.sh
-  sudo -u $USER ./scripts/coco-heartbeat.sh
-  kill $MOCKPID
-  cat tests-temp/backend/requests.log
-  ```
-  Expectations: POSTs to `/internal/ingest/session_summary` and `/internal/heartbeat` with well-formed JSON.
-- Failure path: restart mock backend to return 500 or stop it to observe retry/fail logs.
+| Category | Tests | Description |
+|----------|-------|-------------|
+| ResponseTracker | 11 | Async response coordination, timeout handling |
+| parseSentimentJson | 15 | JSON parsing, code fence stripping, validation |
+| extractTextFromMessage | 11 | Message content extraction from various formats |
+| clampParticipantWindow | 8 | Duration clamping within min/max bounds |
 
-## 6) Heartbeat Degraded-Mode Cases
-- Missing version:
-  ```bash
-  sudo mv /etc/coco-agent-version /etc/coco-agent-version.bak
-  sudo -u $USER ./scripts/coco-heartbeat.sh
-  sudo mv /etc/coco-agent-version.bak /etc/coco-agent-version
-  grep "missing config" /var/log/coco/heartbeat.log | tail -n 5
-  ```
-- Missing last_session_at:
-  ```bash
-  sudo rm -f /var/lib/coco/last_session_at
-  sudo -u $USER ./scripts/coco-heartbeat.sh
-  grep "last_session_at" /var/log/coco/heartbeat.log | tail -n 5
-  ```
-- Backend unreachable:
-  ```bash
-  COCO_BACKEND_URL=http://127.0.0.1:65500 INGEST_SERVICE_TOKEN=token COCO_DEVICE_ID=testdev sudo -u $USER ./scripts/coco-heartbeat.sh
-  grep "heartbeat failed" /var/log/coco/heartbeat.log | tail -n 5
-  ```
-- Agent inactive unexpectedly: stop service if running, run heartbeat, check agent_status reported as ok/inactive.
+**Key scenarios:**
+- Response tracking with multiple concurrent responses
+- Deduplication of tracked response IDs
+- Event handling (done, failed, cancelled, error)
+- Sentiment JSON with markdown code fences
+- Score clamping to 0-1 range
+- Null/undefined/malformed input handling
 
-## 7) Logging & Filesystem Sanity (incl. growth)
-- Check dirs/files:
-  ```bash
-  test -d /var/log/coco && test -d /var/lib/coco && test -d /var/lib/wifi-provision
-  ls -l /var/log/coco
-  sudo stat /etc/coco-agent-version
-  ```
-- Log growth: run 3–5 mock sessions (boot script or scheduler) and ensure logs append/readable:
-  ```bash
-  for i in 1 2 3; do COCO_AGENT_MODE=mock /usr/local/bin/coco-native-agent-boot.sh; done
-  tail -n 100 /var/log/coco/agent.log
-  tail -n 100 /var/log/coco/session-scheduler.log
-  ```
+### 2. Backend Tests (`tests/backend.test.ts`)
 
-## Expected Outcomes (Pass Criteria)
-- Systemd: timers active; agent inactive by default; lockfile blocks concurrent runs.
-- Wi-Fi: valid → .applied, state/logs updated; invalid → .failed, logs show error.
-- Scheduler: offline → skip; online → success; lock prevents overlap; last_session_at updated on success.
-- Agent mock: completes plan; exit 0; logs present; last_session_at updated when invoked via boot script.
-- Summary payload: contains IDs, timestamps, duration, turn_count, sentiment fields, label/notes; plan not silently skipped.
-- Backend: mock receives well-formed JSON for session and heartbeat; failure logged/retried.
-- Heartbeat: correct metadata; degraded modes log missing config/last_session/backend issues; agent status reported appropriately.
-- Logging/FS: all logs under /var/log/coco; state dirs exist; logs append across runs without corruption.
+**Coverage:** 9 tests
+
+| Category | Tests | Description |
+|----------|-------|-------------|
+| createSessionIdentifiers | 5 | UUID generation, uniqueness |
+| Payload Types | 2 | TypeScript type validation |
+| Integration | 2 | Live backend communication (if configured) |
+
+**Key scenarios:**
+- Valid UUID generation (RFC 4122 format)
+- No ID collisions across 1000+ generations
+- Correct payload structure for session summaries
+
+### 3. Planner Tests (`tests/planner.test.ts`)
+
+**Coverage:** 14 tests
+
+| Category | Tests | Description |
+|----------|-------|-------------|
+| buildPlan | 9 | Plan generation, category ordering |
+| Activity Structure | 3 | Field validation, type checking |
+| Edge Cases | 2 | Stress testing, consistency |
+
+**Key scenarios:**
+- Exactly 6 activities per plan
+- Correct category order (orientation → closing)
+- Duration clamping between 1-2 minutes
+- No duplicate activity IDs in single plan
+- Randomization across multiple plan generations
+
+---
+
+## Integration Tests
+
+### Systemd Services
+
+```bash
+# Check all timers are active
+systemctl list-timers 'coco-*'
+
+# Expected output:
+# coco-agent-scheduler.timer - enabled/active (09:00, 15:00)
+# coco-heartbeat.timer       - enabled/active (every 5 min)
+# coco-update.timer          - enabled/active (daily 02:30)
+
+# Verify agent service (should be inactive by default)
+systemctl status coco-agent.service
+
+# Test manual agent start
+sudo systemctl start coco-agent.service
+sudo tail -f /var/log/coco/agent.log
+```
+
+### Concurrency Lock
+
+```bash
+# Start a session with sleep to hold the lock
+SESSION_CMD="sleep 30" ./scripts/run-scheduled-session.sh &
+sleep 2
+
+# Try starting agent service (should be blocked)
+sudo systemctl start coco-agent.service
+# Check logs for "already running" message
+grep "already running" /var/log/coco/agent.log
+```
+
+### Network Gating
+
+```bash
+# Simulate offline condition
+cat > /tmp/fake-curl <<'SH'
+#!/bin/bash
+exit 28  # timeout
+SH
+chmod +x /tmp/fake-curl
+
+PATH="/tmp:$PATH" MAX_NETWORK_ATTEMPTS=2 ./scripts/run-scheduled-session.sh
+grep "session will be skipped" /var/log/coco/session-scheduler.log
+```
+
+---
+
+## Manual Tests
+
+### Audio I/O (requires physical hardware)
+
+```bash
+# List available ALSA devices
+aplay -l
+arecord -l
+
+# Test recording (3 seconds)
+arecord -D plughw:3,0 -f S16_LE -r 24000 -c 1 -d 3 /tmp/test.wav
+
+# Test playback
+aplay -D plughw:3,0 /tmp/test.wav
+
+# Full duplex test (speak while playing)
+arecord -D plughw:3,0 -f S16_LE -r 24000 -c 1 | aplay -D plughw:3,0
+```
+
+### Real-time Session
+
+```bash
+# Set up environment
+export COCO_AGENT_MODE=realtime
+export OPENAI_API_KEY=sk-...
+source ~/coco-device/.env
+
+# Run session
+npm start
+
+# Expected behavior:
+# 1. Agent speaks greeting
+# 2. Listens for participant response
+# 3. Runs through 6 activities
+# 4. Posts summary to backend
+```
+
+### Mock Mode (no audio)
+
+```bash
+# Run in mock mode
+export COCO_AGENT_MODE=mock
+npm start
+
+# Check logs
+tail -f agent-activity.log
+```
+
+---
+
+## Backend Communication Tests
+
+### Mock Backend Server
+
+```bash
+# Start mock server
+cat > /tmp/mock-backend.py <<'PY'
+from http.server import BaseHTTPRequestHandler, HTTPServer
+import json, sys
+
+class Handler(BaseHTTPRequestHandler):
+    def do_POST(self):
+        length = int(self.headers.get('content-length', 0))
+        body = self.rfile.read(length).decode()
+        print(f"{self.path}: {body}", file=sys.stderr, flush=True)
+        self.send_response(200)
+        self.end_headers()
+        self.wfile.write(b'{}')
+
+HTTPServer(('0.0.0.0', 8081), Handler).serve_forever()
+PY
+
+python3 /tmp/mock-backend.py 2>&1 | tee /tmp/backend.log &
+MOCK_PID=$!
+
+# Configure device to use mock backend
+export COCO_BACKEND_URL=http://127.0.0.1:8081
+export INGEST_SERVICE_TOKEN=test-token
+export COCO_AGENT_MODE=mock
+
+# Run session
+npm start
+
+# Check captured requests
+cat /tmp/backend.log
+
+# Cleanup
+kill $MOCK_PID
+```
+
+### Heartbeat Test
+
+```bash
+# Run heartbeat script
+./scripts/coco-heartbeat.sh
+
+# Check heartbeat log
+tail /var/log/coco/heartbeat.log
+
+# Verify last_session_at file
+cat /var/lib/coco/last_session_at
+```
+
+### Retry Logic Test
+
+```bash
+# Start server that returns 500 errors
+cat > /tmp/fail-backend.py <<'PY'
+from http.server import BaseHTTPRequestHandler, HTTPServer
+count = 0
+
+class Handler(BaseHTTPRequestHandler):
+    def do_POST(self):
+        global count
+        count += 1
+        print(f"Request {count}", flush=True)
+        if count < 3:
+            self.send_response(500)
+        else:
+            self.send_response(200)
+        self.end_headers()
+
+HTTPServer(('0.0.0.0', 8082), Handler).serve_forever()
+PY
+
+python3 /tmp/fail-backend.py &
+FAIL_PID=$!
+
+export COCO_BACKEND_URL=http://127.0.0.1:8082
+export COCO_BACKEND_RETRIES=3
+npm start
+
+# Should see retry attempts in logs
+kill $FAIL_PID
+```
+
+---
+
+## OTA Update Test
+
+```bash
+# Trigger manual update
+sudo systemctl start coco-update.service
+
+# Check update log
+tail -f /var/log/coco/agent.log
+
+# Verify version updated
+cat /etc/coco-agent-version
+
+# Check timer status
+systemctl status coco-update.timer
+```
+
+---
+
+## Pass Criteria
+
+### Automated Tests
+- [ ] `npm test` passes with 0 failures
+- [ ] All 68 tests pass (45 agent + 9 backend + 14 planner)
+- [ ] TypeScript compiles without errors
+
+### Systemd Integration
+- [ ] All timers active and scheduled correctly
+- [ ] Agent service restarts on failure
+- [ ] Concurrency lock prevents overlapping sessions
+- [ ] OTA update service completes successfully
+
+### Backend Communication
+- [ ] Session summary POST succeeds with valid payload
+- [ ] Heartbeat POST succeeds every 5 minutes
+- [ ] Retry logic handles temporary failures
+- [ ] Missing backend URL handled gracefully
+
+### Audio (Manual)
+- [ ] ALSA devices detected and working
+- [ ] Recording captures clear audio
+- [ ] Playback produces audible output
+- [ ] Full-duplex works without feedback
+
+### Real-time Session (Manual)
+- [ ] Agent speaks greeting on connect
+- [ ] Responds to participant speech
+- [ ] Completes all 6 activity steps
+- [ ] Handles "stop" command gracefully
+- [ ] Posts summary with sentiment score
+
+---
+
+## Test Environment Setup
+
+### Prerequisites
+```bash
+# Node.js 18+
+node --version  # v18.x or higher
+
+# Install dependencies
+cd ~/coco-device
+npm install
+
+# Set up environment
+cp .env.example .env
+# Edit .env with valid credentials
+```
+
+### Test Data Cleanup
+```bash
+# Reset state files
+sudo rm -f /var/lib/coco/last_session_at
+sudo rm -f /tmp/coco-session-runner.lock
+
+# Clear logs
+sudo truncate -s 0 /var/log/coco/*.log
+
+# Reset version file
+echo "test-version" | sudo tee /etc/coco-agent-version
+```
+
+---
+
+## Troubleshooting Test Failures
+
+| Issue | Resolution |
+|-------|------------|
+| Tests hang | Check for zombie processes: `ps aux \| grep coco` |
+| Backend tests fail | Verify `COCO_BACKEND_URL` not set in env |
+| Audio tests fail | Check ALSA device: `aplay -l` |
+| Lock errors | Remove stale lock: `rm /tmp/coco-session-runner.lock` |
+| TypeScript errors | Run `npm run typecheck` for details |

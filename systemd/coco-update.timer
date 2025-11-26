@@ -1,0 +1,11 @@
+[Unit]
+Description=Run coco-update daily
+
+[Timer]
+OnCalendar=*-*-* 02:30:00
+RandomizedDelaySec=900
+Persistent=true
+Unit=coco-update.service
+
+[Install]
+WantedBy=timers.target

@@ -5,8 +5,10 @@
   "scripts": {
     "start": "tsx src/runAgent.ts",
     "typecheck": "tsc --noEmit",
-    "test": "npm run typecheck",
-    "test:mock-backend": "tsx tests/mock-backend-smoke.ts"
+    "test": "npm run typecheck && npm run test:agent && npm run test:backend && npm run test:planner",
+    "test:agent": "tsx tests/agent.test.ts",
+    "test:backend": "tsx tests/backend.test.ts",
+    "test:planner": "tsx tests/planner.test.ts"
   },
   "keywords": [],
   "author": "",
