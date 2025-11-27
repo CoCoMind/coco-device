@@ -12,7 +12,7 @@ Hardware-ready Raspberry Pi build for the Coco voice agent. Provides realtime sp
 1. Flash Raspberry Pi OS Lite and get network access.
 2. Run the bootstrap (installs Node 20, pulls this repo, installs units/deps):
    ```bash
-   curl -sSL https://raw.githubusercontent.com/jh2k2/coco-device/main/install.sh | sudo bash
+   curl -sSL https://raw.githubusercontent.com/jh2k2/coco-hardware-scripts/main/install.sh | sudo bash
    ```
 3. Configure env:
    ```bash
@@ -31,7 +31,7 @@ See `config/INSTALL.md` for manual install steps and `config/DEVICE_SPEC.md` for
 
 ## Running locally (dev)
 ```bash
-git clone https://github.com/jh2k2/coco-device.git
+git clone https://github.com/jh2k2/coco-hardware-scripts.git coco-device
 cd coco-device
 npm install
 cp .env.example .env

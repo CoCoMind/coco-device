@@ -7,7 +7,7 @@
 
 ## One-liner bootstrap (run on the Pi)
 ```bash
-curl -sSL https://raw.githubusercontent.com/jh2k2/coco-device/main/install.sh | sudo bash
+curl -sSL https://raw.githubusercontent.com/jh2k2/coco-hardware-scripts/main/install.sh | sudo bash
 ```
 
 ## Manual steps (if you prefer)
@@ -26,7 +26,7 @@ git clone "${REPO_URL}" coco-device
 cd coco-device
 sudo ./install.sh --local
 ```
-Replace `REPO_URL`/`BRANCH` with `https://github.com/jh2k2/coco-device.git` and your target ref if not using the one-liner.
+Replace `REPO_URL`/`BRANCH` with `https://github.com/jh2k2/coco-hardware-scripts.git` and your target ref if not using the one-liner.
 
 ## Configure env
 ```bash
