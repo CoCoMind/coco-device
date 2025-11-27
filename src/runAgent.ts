@@ -85,9 +85,29 @@ function resolveMode(): AgentMode {
 async function runRealtime() {
   const ephemeralKey =
     process.env.OPENAI_EPHEMERAL_KEY ?? (await createEphemeralKey());
-  await startSession(ephemeralKey);
-  log.lifecycle("Session complete, forcing exit");
-  process.exit(0);
+
+  // Set up forced exit timeout as a safety net (5 seconds after session should complete)
+  const maxSessionMs = Number(process.env.COCO_MAX_SESSION_MS ?? "900000"); // 15 minutes default
+  const forceExitTimer = setTimeout(() => {
+    log.warn("runAgent", `Force exit triggered after ${maxSessionMs}ms - session may have hung`);
+    process.exit(1);
+  }, maxSessionMs);
+  forceExitTimer.unref?.();
+
+  try {
+    await startSession(ephemeralKey);
+    log.lifecycle("Session complete, exiting cleanly");
+  } catch (error) {
+    log.error("runAgent", "Session failed with error", error);
+  } finally {
+    clearTimeout(forceExitTimer);
+  }
+
+  // Give a moment for cleanup, then force exit
+  setTimeout(() => {
+    log.lifecycle("Forcing exit after cleanup delay");
+    process.exit(0);
+  }, 500).unref?.();
 }
 
 async function main() {

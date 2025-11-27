@@ -43,6 +43,8 @@ IMPORTANT: If the participant says "stop session", "end session", "goodbye", "I'
 
 type SayOptions = {
   timeoutMs?: number;
+  abortSignal?: AbortSignal;
+  force?: boolean; // If true, ignore abort signal and deliver message anyway
 };
 
 const INTRO_RESPONSE_WINDOW_MS = Number(
@@ -323,19 +325,53 @@ async function sessionSay(
   if (!trimmed) {
     return;
   }
+
+  // Check if already aborted before starting - but allow forced messages
+  if (options?.abortSignal?.aborted && !options?.force) {
+    log.debug("agent", "sessionSay skipped - already aborted");
+    return;
+  }
+
   log.session(`Agent prompt: "${trimmed.slice(0, 80)}${trimmed.length > 80 ? "..." : ""}"`);
 
-  const awaitResponse = (responseId: string, timeoutMs: number) =>
+  const awaitResponse = (responseId: string, timeoutMs: number, abortSignal?: AbortSignal, forceComplete?: boolean) =>
     new Promise<void>((resolve, reject) => {
       const s = session as any;
-      const onDone = (event?: { response?: { id?: string } }) => {
-        if (responseId && event?.response?.id && event.response.id !== responseId) {
-          return;
-        }
+      let resolved = false;
+
+      // If already aborted and not forcing, resolve immediately
+      if (abortSignal?.aborted && !forceComplete) {
+        log.debug("agent", "awaitResponse skipped - already aborted");
+        resolve();
+        return;
+      }
+
+      // Use shorter timeout when abort is signaled (to prevent hanging)
+      const effectiveTimeoutMs = abortSignal?.aborted ? Math.min(timeoutMs, 5000) : timeoutMs;
+
+      const safeResolve = () => {
+        if (resolved) return;
+        resolved = true;
         cleanup();
         resolve();
       };
+
+      const onDone = (event?: { response?: { id?: string } }) => {
+        // When aborted, accept any response completion
+        if (!abortSignal?.aborted && responseId && event?.response?.id && event.response.id !== responseId) {
+          return;
+        }
+        log.debug("agent", `Response done: id=${event?.response?.id ?? "none"}`);
+        safeResolve();
+      };
+      const onCancelled = () => {
+        // Always accept cancelled - don't check ID
+        log.debug("agent", "Response cancelled");
+        safeResolve();
+      };
       const onError = (error: unknown) => {
+        if (resolved) return;
+        resolved = true;
         cleanup();
         const normalized =
           error instanceof Error
@@ -347,24 +383,82 @@ async function sessionSay(
               );
         reject(normalized);
       };
+      const onAbort = () => {
+        log.debug("agent", "awaitResponse aborted by signal - resolving immediately");
+        safeResolve();
+      };
       const timer = setTimeout(
-        () => reject(new Error("Timed out waiting for response completion")),
-        timeoutMs,
+        () => {
+          if (resolved) return;
+          resolved = true;
+          cleanup();
+          // If aborting, just resolve instead of rejecting to allow cleanup
+          if (abortSignal?.aborted) {
+            log.debug("agent", `awaitResponse timeout during abort - resolving gracefully`);
+            resolve();
+          } else {
+            reject(new Error("Timed out waiting for response completion"));
+          }
+        },
+        effectiveTimeoutMs,
       );
       (timer as NodeJS.Timeout).unref?.();
+      // Declare poll interval early so cleanup can access it
+      let abortPollInterval: NodeJS.Timeout | null = null;
+
+      // Also listen for events via transport_event wrapper (OpenAI Realtime SDK behavior)
+      const onTransportEvent = (event: unknown) => {
+        const e = event as { type?: string; response?: { id?: string } } | undefined;
+        if (e?.type === "response.done" || e?.type === "response.output_audio.done") {
+          log.debug("agent", `transport_event: ${e.type}`);
+          onDone(e);
+        } else if (e?.type === "response.cancelled") {
+          log.debug("agent", `transport_event: ${e.type}`);
+          onCancelled();
+        }
+      };
+
       const cleanup = () => {
         clearTimeout(timer);
+        if (abortPollInterval) clearInterval(abortPollInterval);
         s.off?.("response.done", onDone);
         s.off?.("response.failed", onError);
-        s.off?.("response.cancelled", onError);
+        s.off?.("response.cancelled", onCancelled);
         s.off?.("response.output_audio.done", onDone);
         s.off?.("error", onError);
+        s.off?.("transport_event", onTransportEvent);
+        abortSignal?.removeEventListener("abort", onAbort);
       };
-      s.once?.("response.done", onDone);
-      s.once?.("response.failed", onError);
-      s.once?.("response.cancelled", onError);
-      s.once?.("response.output_audio.done", onDone);
-      s.once?.("error", onError);
+      s.on?.("response.done", onDone);
+      s.on?.("response.failed", onError);
+      s.on?.("response.cancelled", onCancelled);
+      s.on?.("response.output_audio.done", onDone);
+      s.on?.("error", onError);
+      s.on?.("transport_event", onTransportEvent);
+
+      // Add abort listener - also check immediately in case already aborted
+      if (abortSignal?.aborted) {
+        log.debug("agent", "Abort signal already aborted when attaching listener");
+        safeResolve();
+        return;
+      }
+      abortSignal?.addEventListener("abort", onAbort);
+
+      // Fallback: poll for abort signal every 50ms in case addEventListener doesn't fire
+      if (abortSignal) {
+        let pollCount = 0;
+        abortPollInterval = setInterval(() => {
+          pollCount++;
+          if (pollCount % 10 === 0) {
+            log.debug("agent", `Abort poll #${pollCount}: aborted=${abortSignal.aborted}, resolved=${resolved}`);
+          }
+          if (abortSignal.aborted && !resolved) {
+            log.info("agent", `Abort detected via polling after ${pollCount * 50}ms - forcing resolve`);
+            safeResolve();
+          }
+        }, 50);
+        (abortPollInterval as NodeJS.Timeout).unref?.();
+      }
     });
 
   const waitForCreated = () => {
@@ -405,9 +499,14 @@ async function sessionSay(
     });
     log.debug("agent", "response.create event sent");
     try {
+      // Check abort before waiting - but allow forced messages
+      if (options?.abortSignal?.aborted && !options?.force) {
+        log.debug("agent", "sessionSay aborted before response");
+        return;
+      }
       const responseId = await createdPromise;
       tracker.trackResponse(responseId);
-      await awaitResponse(responseId, options?.timeoutMs ?? 90000);
+      await awaitResponse(responseId, options?.timeoutMs ?? 90000, options?.abortSignal, options?.force);
       return; // Success - exit function
     } catch (error) {
       lastError =
@@ -432,16 +531,26 @@ async function waitForParticipantExchange(
   session: RealtimeSession,
   timeoutMs: number,
   graceMs: number = 0,
+  checkStop?: () => boolean,
+  abortSignal?: AbortSignal,
 ) {
   if (timeoutMs <= 0) {
+    return false;
+  }
+  // Check immediately if stop was already requested
+  if (checkStop?.() || abortSignal?.aborted) {
+    log.session("👂 Stop already requested, skipping listen window");
     return false;
   }
   log.session(`👂 Listening for participant (window=${timeoutMs}ms, grace=${graceMs}ms)`);
 
   return new Promise<boolean>((resolve) => {
+    let resolved = false;
+    let stopCheckInterval: NodeJS.Timeout | null = null;
+
     const onHistoryAdded = (item: unknown) => {
       const candidate = item as { type?: string; role?: string } | undefined;
-      log.debug("listen", `history_added event: ${JSON.stringify(candidate)?.slice(0, 200)}`);
+      log.info("listen", `history_added in listen window: type=${candidate?.type}, role=${candidate?.role}`);
       if (!candidate || candidate.type !== "message" || candidate.role !== "user") {
         return;
       }
@@ -452,6 +561,18 @@ async function waitForParticipantExchange(
     const onTimeout = () => {
       cleanup();
       log.warn("listen", `⏰ No participant response within ${timeoutMs}ms; continuing to next step`);
+      resolve(false);
+    };
+    const onStopRequested = () => {
+      if (resolved) return;
+      log.session("🛑 Stop requested during listen window, exiting immediately");
+      cleanup();
+      resolve(false);
+    };
+    const onAbort = () => {
+      if (resolved) return;
+      log.session("🛑 Listen window aborted by signal");
+      cleanup();
       resolve(false);
     };
     let timer: NodeJS.Timeout | null = null;
@@ -467,12 +588,28 @@ async function waitForParticipantExchange(
       startTimer();
     }
     const cleanup = () => {
+      resolved = true;
       if (timer) {
         clearTimeout(timer);
       }
+      if (stopCheckInterval) {
+        clearInterval(stopCheckInterval);
+      }
       session.off("history_added", onHistoryAdded);
+      abortSignal?.removeEventListener("abort", onAbort);
     };
     session.on("history_added", onHistoryAdded);
+    abortSignal?.addEventListener("abort", onAbort);
+
+    // Poll for stop request every 100ms
+    if (checkStop) {
+      stopCheckInterval = setInterval(() => {
+        if (checkStop()) {
+          onStopRequested();
+        }
+      }, 100);
+      (stopCheckInterval as NodeJS.Timeout).unref?.();
+    }
   });
 }
 
@@ -500,13 +637,63 @@ export function createAgent() {
 export async function startSession(ephemeralKey: string) {
   log.lifecycle("SESSION START", { model: REALTIME_MODEL, textOnly: TEXT_ONLY });
 
+  // Global abort controller to cancel all pending operations on stop
+  const sessionAbort = new AbortController();
+  let stopRequested = false;
+  let saidGoodbye = false;
+  let summarySent = false;
+  const tsStart = new Date(); // Track start time early for safety net
+
+  // Declare session identifiers early for safety net in finally block
+  let sessionId: string | undefined;
+  let planId: string | undefined;
+  let deviceId: string | undefined;
+  let participantId: string | undefined;
+  let userExternalId: string | undefined;
+  let label: string | undefined;
+
+  // Helper to check stop and throw if aborted
+  const checkAbort = () => {
+    if (stopRequested) {
+      throw new Error("Session stop requested");
+    }
+  };
+
+  // Helper to request stop and abort all pending operations
+  const requestStop = (reason: string, goodbyeAlreadySaid: boolean = false) => {
+    if (stopRequested) return;
+    log.lifecycle(`🛑 STOP REQUESTED: ${reason}`);
+    stopRequested = true;
+    saidGoodbye = goodbyeAlreadySaid;
+    log.debug("agent", "Firing abort signal...");
+    sessionAbort.abort();
+    log.debug("agent", "Abort signal fired");
+  };
+
+  // Helper to send session summary with timeout (don't let it block exit)
+  const sendSummaryWithTimeout = async (payload: Parameters<typeof sendSessionSummary>[0]) => {
+    const timeoutMs = 5000; // 5 second timeout for summary
+    try {
+      const result = await Promise.race([
+        sendSessionSummary(payload),
+        new Promise<void>((_, reject) =>
+          setTimeout(() => reject(new Error("Summary timeout")), timeoutMs)
+        ),
+      ]);
+      return result;
+    } catch (error) {
+      log.warn("backend", "Session summary failed or timed out", error);
+    }
+  };
+
   async function handleNoInput(context: "intro" | "step") {
+    if (stopRequested) return; // Exit early if stop requested
     log.session(`No input detected (${context}), providing encouragement`);
     const message =
       context === "intro"
         ? "I didn't hear you yet, but you can jump in at any time. Let's keep going."
         : "I didn't hear you that round, but I'll keep us moving. Feel free to chime in whenever you're ready.";
-    await sessionSay(session, responseTracker, message);
+    await sessionSay(session, responseTracker, message, { abortSignal: sessionAbort.signal });
     await waitForPlaybackIdle();
   }
 
@@ -540,12 +727,10 @@ export async function startSession(ephemeralKey: string) {
 
   try {
     const participantUtterances: string[] = [];
-    let stopRequested = false;
 
     // Register the end_session tool callback
     setEndSessionCallback(() => {
-      log.lifecycle("🛑 end_session tool called - stopping session");
-      stopRequested = true;
+      requestStop("end_session tool called", false);
       audioBinding.stopCapture();
     });
 
@@ -573,18 +758,31 @@ export async function startSession(ephemeralKey: string) {
           normalized.includes("that's all") ||
           normalized.includes("bye")
         ) {
-          log.lifecycle("🛑 STOP REQUESTED by participant", { text });
-          stopRequested = true;
+          requestStop(`participant said: "${text}"`, false);
           // Interrupt any ongoing response (official API)
           session.interrupt();
           // Cancel tracked responses
           responseTracker.cancelActive();
           // IMMEDIATELY stop capture so no more audio goes to API
           audioBinding.stopCapture();
-          log.lifecycle("Audio capture killed immediately");
         }
       } else if (candidate.role === "assistant") {
         log.speech(`Agent: "${text.slice(0, 100)}${text.length > 100 ? "..." : ""}"`);
+        // Detect if assistant said goodbye (in case end_session tool wasn't called)
+        const normalized = text.toLowerCase();
+        if (
+          !stopRequested &&
+          (normalized.includes("take care") ||
+            normalized.includes("goodbye") ||
+            normalized.includes("good bye") ||
+            normalized.includes("see you") ||
+            normalized.includes("until next time") ||
+            normalized.includes("thanks for spending time") ||
+            normalized.includes("thank you for spending time"))
+        ) {
+          requestStop(`assistant goodbye: "${text.slice(0, 50)}"`, true); // AI already said goodbye
+          audioBinding.stopCapture();
+        }
       }
     };
 
@@ -647,8 +845,47 @@ export async function startSession(ephemeralKey: string) {
       const e = event as { response?: { id?: string } } | undefined;
       log.debug("realtime", `response.created: id=${e?.response?.id}`);
     });
-    s.on?.("response.done", (event: unknown) => {
-      log.debug("realtime", "response.done event received");
+    // Listen for transport_event which wraps all realtime events
+    s.on?.("transport_event", (event: unknown) => {
+      const e = event as { type?: string; transcript?: string } | undefined;
+
+      // Detect user saying "stop" via transcription - interrupt AI immediately
+      if (e?.type === "conversation.item.input_audio_transcription.completed" && e?.transcript) {
+        const normalized = e.transcript.toLowerCase();
+        log.speech(`User transcript: "${e.transcript}"`);
+        if (
+          !stopRequested &&
+          (normalized.includes("stop session") ||
+            normalized.includes("end session") ||
+            normalized === "stop" ||
+            normalized.includes("stop ") ||
+            normalized.includes("goodbye") ||
+            normalized.includes("bye"))
+        ) {
+          requestStop(`user transcript: "${e.transcript}"`, false);
+          session.interrupt(); // Interrupt AI immediately
+          responseTracker.cancelActive();
+          audioBinding.stopCapture();
+        }
+      }
+
+      // Detect goodbye in assistant's completed audio transcript
+      if (e?.type === "response.output_audio_transcript.done" && e?.transcript) {
+        const normalized = e.transcript.toLowerCase();
+        if (
+          !stopRequested &&
+          (normalized.includes("take care") ||
+            normalized.includes("goodbye") ||
+            normalized.includes("good bye") ||
+            normalized.includes("see you") ||
+            normalized.includes("until next time") ||
+            normalized.includes("thanks for spending time") ||
+            normalized.includes("thank you for spending time"))
+        ) {
+          requestStop(`assistant audio transcript: "${e.transcript.slice(0, 50)}"`, true);
+          audioBinding.stopCapture();
+        }
+      }
     });
     s.on?.("response.audio.delta", () => {
       log.debug("realtime", "response.audio.delta - audio chunk received");
@@ -679,24 +916,26 @@ export async function startSession(ephemeralKey: string) {
     // Immediately kick off the curriculum (no user utterance required)
     // 1) Build the plan
     const plan = buildPlan() as Activity[];
-    const { sessionId, planId } = createSessionIdentifiers();
-    const tsStart = new Date();
+    const ids = createSessionIdentifiers();
+    sessionId = ids.sessionId;
+    planId = ids.planId;
+    // tsStart is set at function start for safety net
     const envParticipantId = process.env.COCO_PARTICIPANT_ID;
-    const userExternalId =
+    userExternalId =
       process.env.COCO_USER_EXTERNAL_ID ??
       envParticipantId ??
       process.env.HOSTNAME ??
       "local-participant";
-    const participantId = envParticipantId ?? userExternalId;
+    participantId = envParticipantId ?? userExternalId;
     if (!envParticipantId && !process.env.COCO_USER_EXTERNAL_ID) {
       log.warn("config", `COCO_PARTICIPANT_ID/COCO_USER_EXTERNAL_ID not set; defaulting to "${userExternalId}"`);
     }
-    const deviceId =
+    deviceId =
       process.env.COCO_DEVICE_ID ?? process.env.HOSTNAME ?? "local-device";
     if (!process.env.COCO_DEVICE_ID) {
       log.warn("config", `COCO_DEVICE_ID not set; defaulting to "${deviceId}"`);
     }
-    const label =
+    label =
       process.env.COCO_SESSION_LABEL ?? "coco-realtime-autostart-session";
 
     log.lifecycle("Session initialized", {
@@ -709,38 +948,95 @@ export async function startSession(ephemeralKey: string) {
 
     // 2) Ask the agent to run it step-by-step with voice output
     log.session("=== INTRO PHASE ===");
+    log.debug("flow", "Starting intro sessionSay...");
     await sessionSay(
       session,
       responseTracker,
       "Let's begin. I'll guide you through a brief set of activities.",
+      { abortSignal: sessionAbort.signal },
     );
+    log.debug("flow", `Intro sessionSay complete, stopRequested=${stopRequested}`);
     await waitForPlaybackIdle();
+    log.debug("flow", `Intro playback idle, stopRequested=${stopRequested}`);
 
+    log.debug("flow", "Starting intro waitForParticipantExchange...");
     const heardIntro = await waitForParticipantExchange(
       session,
       INTRO_RESPONSE_WINDOW_MS,
       LISTEN_GRACE_MS,
+      () => stopRequested,
+      sessionAbort.signal,
     );
-    if (!heardIntro) {
-      await handleNoInput("intro");
-    }
+    log.debug("flow", `Intro listen complete: heardIntro=${heardIntro}, stopRequested=${stopRequested}, saidGoodbye=${saidGoodbye}`);
+
+    // Check stopRequested BEFORE handleNoInput to avoid hanging
     if (stopRequested) {
       log.lifecycle("Session ending early (stop requested in intro)");
-      await sessionSay(
-        session,
-        responseTracker,
-        "Okay, I'll stop here. Thank you for spending time with me today.",
-      );
-      await waitForPlaybackIdle();
-      log.lifecycle("SESSION END (early stop)");
+      if (!saidGoodbye) {
+        log.debug("flow", "Saying goodbye (AI hasn't said it yet)...");
+        await sessionSay(
+          session,
+          responseTracker,
+          "Okay, I'll stop here. Thank you for spending time with me today.",
+          { force: true, timeoutMs: 15000 },
+        );
+        await waitForPlaybackIdle();
+        log.debug("flow", "Goodbye playback complete");
+      } else {
+        log.lifecycle("AI already said goodbye, skipping extra farewell");
+        // Wait for "Take care!" audio to finish playing
+        log.debug("flow", "Waiting for existing goodbye playback...");
+        await waitForPlaybackIdle();
+        log.debug("flow", "Existing goodbye playback complete");
+      }
+
+      // Send session summary even for early exit
+      const tsEnd = new Date();
+      const totalDurationSec = Math.round((tsEnd.getTime() - tsStart.getTime()) / 1000);
+      const summaryPayload = {
+        session_id: sessionId,
+        plan_id: planId,
+        user_external_id: userExternalId,
+        participant_id: participantId,
+        device_id: deviceId,
+        label,
+        started_at: tsStart.toISOString(),
+        ended_at: tsEnd.toISOString(),
+        duration_seconds: totalDurationSec,
+        turn_count: 0,
+        sentiment_summary: "early_exit",
+        sentiment_score: 0,
+        notes: "Session ended early during intro phase",
+      };
+      log.session("=== SUMMARY PHASE (early exit) ===");
+      log.debug("flow", "Sending session summary (early exit)...");
+      await sendSummaryWithTimeout(summaryPayload);
+      summarySent = true;
+      log.debug("flow", "Session summary sent (early exit)");
+
+      log.lifecycle("SESSION END (early stop)", { sessionId, durationSec: totalDurationSec });
       return session;
+    }
+
+    // Only handle no-input if we didn't exit early
+    if (!heardIntro) {
+      log.debug("flow", `Calling handleNoInput(intro), stopRequested=${stopRequested}`);
+      await handleNoInput("intro");
+      log.debug("flow", `handleNoInput(intro) complete, stopRequested=${stopRequested}`);
+    }
+
+    // Check if stop was triggered during handleNoInput - skip activities if so
+    if (stopRequested) {
+      log.lifecycle("Session ending early (stop requested after intro handleNoInput)");
     }
 
     let turnCount = 0;
 
-    log.session("=== ACTIVITIES PHASE ===");
-    let saidGoodbye = false;
-    for (let i = 0; i < plan.length; i++) {
+    // Only run activities if not stopping
+    if (!stopRequested) {
+      log.session("=== ACTIVITIES PHASE ===");
+    }
+    for (let i = 0; i < plan.length && !stopRequested; i++) {
       // Check at start of each iteration for early exit
       if (stopRequested) {
         log.lifecycle(`Stop already requested, skipping remaining activities`);
@@ -749,6 +1045,7 @@ export async function startSession(ephemeralKey: string) {
             session,
             responseTracker,
             "Got it. I'll wrap up here. Thank you for sharing your time.",
+            { force: true, timeoutMs: 15000 },
           );
           await waitForPlaybackIdle();
           saidGoodbye = true;
@@ -767,7 +1064,7 @@ export async function startSession(ephemeralKey: string) {
 
       const line =
         step.prompt ?? step.instructions ?? (step.trials?.[0] ?? "");
-      await sessionSay(session, responseTracker, line);
+      await sessionSay(session, responseTracker, line, { abortSignal: sessionAbort.signal });
 
       // Check after agent speaks
       if (stopRequested) {
@@ -782,6 +1079,8 @@ export async function startSession(ephemeralKey: string) {
         session,
         listenWindowMs,
         LISTEN_GRACE_MS,
+        () => stopRequested,
+        sessionAbort.signal,
       );
 
       // Check stopRequested IMMEDIATELY after listen window
@@ -792,6 +1091,7 @@ export async function startSession(ephemeralKey: string) {
             session,
             responseTracker,
             "Got it. I'll wrap up here. Thank you for sharing your time.",
+            { force: true, timeoutMs: 15000 },
           );
           await waitForPlaybackIdle();
           saidGoodbye = true;
@@ -811,6 +1111,7 @@ export async function startSession(ephemeralKey: string) {
             session,
             responseTracker,
             "Got it. I'll wrap up here. Thank you for sharing your time.",
+            { force: true, timeoutMs: 15000 },
           );
           await waitForPlaybackIdle();
           saidGoodbye = true;
@@ -833,6 +1134,7 @@ export async function startSession(ephemeralKey: string) {
         session,
         responseTracker,
         "Got it. I'll wrap up here. Thank you for sharing your time.",
+        { force: true, timeoutMs: 15000 },
       );
       await waitForPlaybackIdle();
       saidGoodbye = true;
@@ -841,6 +1143,7 @@ export async function startSession(ephemeralKey: string) {
         session,
         responseTracker,
         "Great work today. Take a breath and enjoy the rest of your day.",
+        { force: true, timeoutMs: 15000 },
       );
       await waitForPlaybackIdle();
     } else {
@@ -858,8 +1161,6 @@ export async function startSession(ephemeralKey: string) {
     // Wait a bit for cleanup
     await new Promise(resolve => setTimeout(resolve, 100));
     log.lifecycle("Session disconnected");
-
-    stopRequested = true;
     const tsEnd = new Date();
     const totalDurationSec = Math.round(
       (tsEnd.getTime() - tsStart.getTime()) / 1000
@@ -902,7 +1203,8 @@ export async function startSession(ephemeralKey: string) {
     };
 
     log.session("=== SUMMARY PHASE ===");
-    await sendSessionSummary(summaryPayload);
+    await sendSummaryWithTimeout(summaryPayload);
+    summarySent = true;
 
     log.lifecycle("SESSION END", {
       sessionId,
@@ -934,6 +1236,37 @@ export async function startSession(ephemeralKey: string) {
       session.close();
     } catch {
       /* ignore close errors */
+    }
+
+    // Safety net: send summary if it wasn't sent due to error/exception
+    if (!summarySent && sessionId) {
+      log.warn("cleanup", "Summary not sent during normal flow - sending fallback summary");
+      const tsEnd = new Date();
+      const totalDurationSec = Math.round((tsEnd.getTime() - tsStart.getTime()) / 1000);
+      const fallbackPayload = {
+        session_id: sessionId,
+        plan_id: planId ?? "unknown",
+        user_external_id: userExternalId ?? "unknown",
+        participant_id: participantId ?? "unknown",
+        device_id: deviceId ?? "unknown",
+        label: label ?? "unknown",
+        started_at: tsStart.toISOString(),
+        ended_at: tsEnd.toISOString(),
+        duration_seconds: totalDurationSec,
+        turn_count: 0,
+        sentiment_summary: "error_exit",
+        sentiment_score: 0,
+        notes: "Session ended unexpectedly - fallback summary",
+      };
+      // Use sync-ish approach to try to send before process exits
+      sendSessionSummary(fallbackPayload).catch((err) => {
+        log.error("cleanup", "Failed to send fallback summary", err);
+      });
+      // Small delay to let the request start
+      const start = Date.now();
+      while (Date.now() - start < 2000) {
+        // Busy wait to give the request time to complete
+      }
     }
 
     log.debug("cleanup", "Session cleanup complete");
