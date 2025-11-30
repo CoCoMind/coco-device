@@ -4,13 +4,14 @@ import { Activity, buildPlan } from "./planner";
 import { createSessionIdentifiers, sendSessionSummary } from "./backend";
 import { tools, setEndSessionCallback, clearEndSessionCallback } from "./tools";
 import { ALSA_SAMPLE_RATE, createAlsaAudioBinding } from "./audioIO";
-import log from "./logger";
+import log, { toLocalISO } from "./logger";
 
 export const REALTIME_MODEL =
   process.env.REALTIME_MODEL ?? "gpt-4o-mini-realtime-preview-2024-12-17";
 const TEXT_ONLY =
   (process.env.OPENAI_OUTPUT_MODALITY ?? "").toLowerCase() === "text" ||
   process.env.COCO_AUDIO_DISABLE === "1";
+const DRY_RUN = process.env.COCO_DRY_RUN === "1";
 
 const systemPrompt = `You are Coco, a warm, research-backed cognitive coach. Immediately run a single ~10-minute session:
 - 4–6 short activities, ~1–2 min each.
@@ -187,7 +188,8 @@ export function createResponseTracker(session: RealtimeSession): ResponseTracker
   }> = [];
 
   const s = session as any;
-  const clear = (event?: { response?: { id?: string } }) => {
+  const clear = (event?: { response?: { id?: string } } | { type?: string; response?: { id?: string } }) => {
+    // Handle both direct events and transport_event wrapper
     const id = event?.response?.id;
     if (id && trackedIds.has(id)) {
       trackedIds.delete(id);
@@ -212,6 +214,13 @@ export function createResponseTracker(session: RealtimeSession): ResponseTracker
   s.on("response.cancelled", clear);
   s.on("response.output_audio.done", clear);
   s.on("error", clear);
+  // Also listen via transport_event wrapper (SDK behavior)
+  s.on("transport_event", (event: unknown) => {
+    const e = event as { type?: string; response?: { id?: string } } | undefined;
+    if (e?.type === "response.done" || e?.type === "response.failed" || e?.type === "response.cancelled") {
+      clear(e);
+    }
+  });
 
   async function waitForIdle(timeoutMs: number = 10_000) {
     if (active === 0) return;
@@ -461,26 +470,115 @@ async function sessionSay(
       }
     });
 
-  const waitForCreated = () => {
+  // Set up ALL listeners BEFORE sending to avoid race conditions (text-only responses complete very fast)
+  const waitForResponseLifecycle = (timeoutMs: number, abortSignal?: AbortSignal, forceComplete?: boolean) => {
     const s = session as any;
-    return new Promise<string>((resolve) => {
-      const onCreated = (event?: { response?: { id?: string } }) => {
-        const id = event?.response?.id;
-        s.off?.("response.created", onCreated);
-        resolve(id ?? "");
+    return new Promise<{ responseId: string }>((resolve, reject) => {
+      let responseId = "";
+      let resolved = false;
+      const safeResolve = () => {
+        if (!resolved) {
+          resolved = true;
+          cleanup();
+          resolve({ responseId });
+        }
       };
-      s.once?.("response.created", onCreated);
+      const safeReject = (err: Error) => {
+        if (!resolved) {
+          resolved = true;
+          cleanup();
+          reject(err);
+        }
+      };
+      const timer = setTimeout(() => {
+        if (!resolved) {
+          log.warn("agent", `Response timeout after ${timeoutMs}ms`);
+          safeReject(new Error(`Response timeout after ${timeoutMs}ms`));
+        }
+      }, timeoutMs);
+
+      const onCreated = (event?: { response?: { id?: string } }) => {
+        responseId = event?.response?.id ?? "";
+        log.debug("agent", `response.created: id=${responseId}`);
+        tracker.trackResponse(responseId);
+      };
+      const onDone = (event?: { response?: { id?: string } }) => {
+        const eventResponseId = event?.response?.id ?? "";
+        log.debug("agent", `response.done: id=${eventResponseId}, waiting for=${responseId}`);
+        // Accept if no responseId yet (race) or if it matches
+        if (!responseId || eventResponseId === responseId) {
+          safeResolve();
+        }
+      };
+      const onError = (event?: unknown) => {
+        const err = event instanceof Error ? event : new Error(String(event ?? "Response failed"));
+        log.error("agent", "Response error", err);
+        safeReject(err);
+      };
+      const onCancelled = () => {
+        log.debug("agent", "Response cancelled");
+        safeResolve();
+      };
+      const onAbort = () => {
+        if (forceComplete) return;
+        log.debug("agent", "Response aborted by signal");
+        safeResolve();
+      };
+      const onTransportEvent = (event: unknown) => {
+        const e = event as { type?: string; response?: { id?: string } } | undefined;
+        if (e?.type === "response.done") {
+          log.debug("agent", `transport_event: response.done`);
+          onDone(e);
+        } else if (e?.type === "response.created") {
+          onCreated(e);
+        } else if (e?.type === "response.cancelled") {
+          onCancelled();
+        }
+      };
+
+      const cleanup = () => {
+        clearTimeout(timer);
+        s.off?.("response.created", onCreated);
+        s.off?.("response.done", onDone);
+        s.off?.("response.failed", onError);
+        s.off?.("response.cancelled", onCancelled);
+        s.off?.("error", onError);
+        s.off?.("transport_event", onTransportEvent);
+        abortSignal?.removeEventListener("abort", onAbort);
+      };
+
+      // Set up all listeners
+      s.on?.("response.created", onCreated);
+      s.on?.("response.done", onDone);
+      s.on?.("response.failed", onError);
+      s.on?.("response.cancelled", onCancelled);
+      s.on?.("error", onError);
+      s.on?.("transport_event", onTransportEvent);
+      abortSignal?.addEventListener("abort", onAbort);
     });
   };
 
   let attempt = 0;
   let lastError: Error | null = null;
-  while (attempt < 2) {
+  // 4 attempts to handle user interruptions (when "conversation_already_has_active_response")
+  while (attempt < 4) {
     await tracker.waitForIdle();
     tracker.cancelActive();
-    // Register listener BEFORE sending event to avoid race condition
-    const createdPromise = waitForCreated();
-    await Promise.resolve(); // Ensure listener is attached before sending
+
+    // Check abort before starting - but allow forced messages
+    if (options?.abortSignal?.aborted && !options?.force) {
+      log.debug("agent", "sessionSay skipped - already aborted");
+      return;
+    }
+
+    // Set up ALL listeners BEFORE sending to avoid race condition
+    const lifecyclePromise = waitForResponseLifecycle(
+      options?.timeoutMs ?? 90000,
+      options?.abortSignal,
+      options?.force,
+    );
+
+    await Promise.resolve(); // Ensure listeners are attached before sending
     log.debug("agent", "Sending response.create event");
     session.transport.sendEvent({
       type: "response.create",
@@ -498,15 +596,9 @@ async function sessionSay(
       },
     });
     log.debug("agent", "response.create event sent");
+
     try {
-      // Check abort before waiting - but allow forced messages
-      if (options?.abortSignal?.aborted && !options?.force) {
-        log.debug("agent", "sessionSay aborted before response");
-        return;
-      }
-      const responseId = await createdPromise;
-      tracker.trackResponse(responseId);
-      await awaitResponse(responseId, options?.timeoutMs ?? 90000, options?.abortSignal, options?.force);
+      await lifecyclePromise;
       return; // Success - exit function
     } catch (error) {
       lastError =
@@ -791,6 +883,13 @@ export async function startSession(ephemeralKey: string) {
     await session.connect({ apiKey: ephemeralKey });
     log.lifecycle("✓ Connected to OpenAI Realtime API");
 
+    // Dry-run mode: exit immediately after verifying connection works
+    if (DRY_RUN) {
+      log.lifecycle("DRY_RUN mode: Connection verified, exiting without running session");
+      session.close();
+      return session;
+    }
+
     // Log tools registered with the agent
     log.info("agent", `Agent tools: ${tools.map(t => t.name).join(", ")}`);
 
@@ -1000,8 +1099,8 @@ export async function startSession(ephemeralKey: string) {
         participant_id: participantId,
         device_id: deviceId,
         label,
-        started_at: tsStart.toISOString(),
-        ended_at: tsEnd.toISOString(),
+        started_at: toLocalISO(tsStart),
+        ended_at: toLocalISO(tsEnd),
         duration_seconds: totalDurationSec,
         turn_count: 0,
         sentiment_summary: "early_exit",
@@ -1191,8 +1290,8 @@ export async function startSession(ephemeralKey: string) {
       participant_id: participantId,
       device_id: deviceId,
       label,
-      started_at: tsStart.toISOString(),
-      ended_at: tsEnd.toISOString(),
+      started_at: toLocalISO(tsStart),
+      ended_at: toLocalISO(tsEnd),
       duration_seconds: totalDurationSec,
       turn_count: turnCount,
       sentiment_summary: sentiment?.summary,
@@ -1250,8 +1349,8 @@ export async function startSession(ephemeralKey: string) {
         participant_id: participantId ?? "unknown",
         device_id: deviceId ?? "unknown",
         label: label ?? "unknown",
-        started_at: tsStart.toISOString(),
-        ended_at: tsEnd.toISOString(),
+        started_at: toLocalISO(tsStart),
+        ended_at: toLocalISO(tsEnd),
         duration_seconds: totalDurationSec,
         turn_count: 0,
         sentiment_summary: "error_exit",

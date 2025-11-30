@@ -9,6 +9,7 @@ import {
   createSessionIdentifiers,
   sendSessionSummary,
 } from "./backend";
+import { toLocalISO } from "./logger";
 
 const LOG_PATH =
   process.env.COCO_ACTIVITY_LOG_PATH ??
@@ -233,7 +234,7 @@ async function appendLog(lines: string[]) {
 }
 
 function logLine(lines: string[], message: string) {
-  const timestamp = new Date().toISOString();
+  const timestamp = toLocalISO();
   lines.push(`[${timestamp}] ${message}`);
 }
 
@@ -475,7 +476,7 @@ export async function runMockAgentSession() {
 
   const header =
     `---\n` +
-    `[${tsStart.toISOString()}] mock session ${sessionId} started (plan=${planId}, participant=${participantId}, device=${deviceId})`;
+    `[${toLocalISO(tsStart)}] mock session ${sessionId} started (plan=${planId}, participant=${participantId}, device=${deviceId})`;
   const logLines = [header];
 
   await speakLine(INTRO_LINE, "intro");
@@ -527,8 +528,8 @@ export async function runMockAgentSession() {
     participant_id: participantId,
     device_id: deviceId,
     label,
-    started_at: tsStart.toISOString(),
-    ended_at: tsEnd.toISOString(),
+    started_at: toLocalISO(tsStart),
+    ended_at: toLocalISO(tsEnd),
     duration_seconds: Math.max(
       1,
       Math.round((tsEnd.getTime() - tsStart.getTime()) / 1000),

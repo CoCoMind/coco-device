@@ -6,7 +6,11 @@ RUN_HOME="${RUN_HOME:-$(getent passwd "$RUN_USER" | cut -d: -f6 || echo "/home/$
 INSTALL_DIR="${INSTALL_DIR:-${RUN_HOME}/coco-device}"
 BRANCH="${BRANCH:-latest-tag}"
 
-log() { echo "[update] $*"; }
+log() {
+  local ts
+  ts=$(date -Iseconds)
+  echo "${ts} [coco-update] $*"
+}
 
 install_bins() {
   log "Updating launcher scripts in /usr/local/bin"
@@ -29,15 +33,25 @@ install_units() {
   install -m 644 "${INSTALL_DIR}/systemd/coco-command-poller.service" /etc/systemd/system/coco-command-poller.service
   install -m 644 "${INSTALL_DIR}/systemd/coco-command-poller.timer" /etc/systemd/system/coco-command-poller.timer
 
+  # Update User= in all services
   sed -i "s/^User=.*/User=${RUN_USER}/" \
     /etc/systemd/system/coco-agent.service \
     /etc/systemd/system/coco-agent-scheduler.service \
     /etc/systemd/system/coco-heartbeat.service \
     /etc/systemd/system/coco-command-poller.service || true
+  # Update Group= in services that have it
   sed -i "s/^Group=.*/Group=${RUN_USER}/" \
     /etc/systemd/system/coco-heartbeat.service \
     /etc/systemd/system/coco-command-poller.service || true
-  sed -i "s/^Environment=COCO_RUN_USER=.*/Environment=COCO_RUN_USER=${RUN_USER}/" /etc/systemd/system/coco-update.service || true
+  # Update WorkingDirectory= paths
+  sed -i "s|^WorkingDirectory=.*|WorkingDirectory=${INSTALL_DIR}|" \
+    /etc/systemd/system/coco-agent.service \
+    /etc/systemd/system/coco-agent-scheduler.service \
+    /etc/systemd/system/coco-update.service || true
+  # Update COCO_RUN_USER environment variable
+  sed -i "s/^Environment=COCO_RUN_USER=.*/Environment=COCO_RUN_USER=${RUN_USER}/" \
+    /etc/systemd/system/coco-update.service \
+    /etc/systemd/system/coco-agent-scheduler.service || true
 
   systemctl daemon-reload
   systemctl enable coco-agent-scheduler.timer coco-heartbeat.timer coco-update.timer coco-command-poller.timer
@@ -46,7 +60,8 @@ install_units() {
 cd "$INSTALL_DIR"
 target_ref="${BRANCH}"
 if [[ "${BRANCH}" == "latest-tag" ]]; then
-  target_ref="$(git ls-remote --tags --sort=v:refname origin | tail -n1 | sed 's#.*/##')"
+  # Run git as the user who owns the repo (has SSH keys)
+  target_ref="$(sudo -u "$RUN_USER" git ls-remote --tags --sort=v:refname origin | tail -n1 | sed 's#.*/##')"
   target_ref="${target_ref:-main}"
   log "Resolved latest tag to ${target_ref}"
 fi

@@ -12,8 +12,25 @@ const LOG_LEVELS: Record<LogLevel, number> = {
   error: 3,
 };
 
+/** Format a Date as local ISO with timezone offset (e.g., 2025-11-29T00:58:42.326-08:00) */
+export function toLocalISO(date: Date = new Date()): string {
+  const offset = -date.getTimezoneOffset();
+  const sign = offset >= 0 ? "+" : "-";
+  const absOffset = Math.abs(offset);
+  const hours = String(Math.floor(absOffset / 60)).padStart(2, "0");
+  const minutes = String(absOffset % 60).padStart(2, "0");
+  return date.getFullYear() +
+    "-" + String(date.getMonth() + 1).padStart(2, "0") +
+    "-" + String(date.getDate()).padStart(2, "0") +
+    "T" + String(date.getHours()).padStart(2, "0") +
+    ":" + String(date.getMinutes()).padStart(2, "0") +
+    ":" + String(date.getSeconds()).padStart(2, "0") +
+    "." + String(date.getMilliseconds()).padStart(3, "0") +
+    sign + hours + ":" + minutes;
+}
+
 function timestamp(): string {
-  return new Date().toISOString();
+  return toLocalISO();
 }
 
 function shouldLog(level: LogLevel): boolean {

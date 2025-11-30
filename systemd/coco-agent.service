@@ -1,15 +1,14 @@
 [Unit]
-Description=Coco Native Agent
+Description=Coco Native Agent (manual runs only)
 After=network-online.target
 Wants=network-online.target
 
 [Service]
 Type=simple
-User=jerryhsieh2002
-WorkingDirectory=/home/jerryhsieh2002/coco-device
+User=pi
+WorkingDirectory=/home/pi/coco-device
 ExecStart=/usr/local/bin/coco-native-agent-boot.sh
-Restart=on-failure
-RestartSec=5
+Restart=no
 StandardOutput=append:/var/log/coco/agent.log
 StandardError=append:/var/log/coco/agent.log
 

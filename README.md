@@ -23,7 +23,7 @@ Hardware-ready Raspberry Pi build for the Coco voice agent. Provides realtime sp
 4. Enable timers (agent service can be run manually):
    ```bash
    sudo systemctl daemon-reload
-   sudo systemctl enable --now coco-agent-scheduler.timer coco-heartbeat.timer coco-update.timer
+   sudo systemctl enable --now coco-agent-scheduler.timer coco-heartbeat.timer coco-update.timer coco-command-poller.timer
    ```
 5. Logs live in `/var/log/coco/agent.log`, `/var/log/coco/session-scheduler.log`, and `/var/log/coco/heartbeat.log`.
 
@@ -40,9 +40,18 @@ COCO_AGENT_MODE=mock npm start   # mock mode avoids realtime audio keys/hardware
 Realtime mode requires `COCO_AGENT_MODE=realtime`, `OPENAI_API_KEY`, and working ALSA devices.
 
 ## Tests
-- Typecheck: `npm test` (tsc)
-- Unit: `npm run test:unit`
-- Backend smoke: `npm run test:mock-backend`
+```bash
+npm test                  # typecheck + all tests
+npm run typecheck         # TypeScript type checking only
+npm run test:all          # run all test suites
+npm run test:agent        # agent unit tests (45 tests)
+npm run test:planner      # planner tests (14 tests)
+npm run test:tools        # tools tests (15 tests)
+npm run test:telemetry    # telemetry tests (13 tests)
+npm run test:scripts      # shell script validation (35 tests)
+npm run test:integration  # integration tests (37 tests)
+npm run test:backend      # backend API tests
+```
 
 ## Key configuration (see `.env.example`)
 - Identity/backend: `COCO_DEVICE_ID`, `COCO_USER_EXTERNAL_ID`, `COCO_PARTICIPANT_ID`, `COCO_BACKEND_URL`, `INGEST_SERVICE_TOKEN` (or `COCO_BACKEND_API_KEY`).

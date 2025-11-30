@@ -6,8 +6,9 @@ Wants=network-online.target
 [Service]
 Type=oneshot
 User=pi
-WorkingDirectory=%h/coco-device
+WorkingDirectory=/home/pi/coco-device
 ExecStart=/usr/local/bin/run-scheduled-session.sh
+Environment=COCO_RUN_USER=pi
 
 [Install]
 WantedBy=multi-user.target

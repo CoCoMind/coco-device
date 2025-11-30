@@ -5,18 +5,27 @@
   "scripts": {
     "start": "dotenv -- tsx src/runAgent.ts",
     "typecheck": "tsc --noEmit",
-    "test": "npm run typecheck && npm run test:agent && npm run test:backend && npm run test:planner",
+    "test": "npm run typecheck && npm run test:all",
+    "test:all": "npm run test:agent && npm run test:backend && npm run test:planner && npm run test:tools && npm run test:telemetry && npm run test:audioIO && npm run test:runAgent && npm run test:mockAgent && npm run test:scripts && npm run test:integration",
     "test:agent": "dotenv -- tsx tests/agent.test.ts",
     "test:backend": "dotenv -- tsx tests/backend.test.ts",
-    "test:planner": "dotenv -- tsx tests/planner.test.ts"
+    "test:planner": "dotenv -- tsx tests/planner.test.ts",
+    "test:tools": "dotenv -- tsx tests/tools.test.ts",
+    "test:telemetry": "dotenv -- tsx tests/telemetry.test.ts",
+    "test:audioIO": "dotenv -- tsx tests/audioIO.test.ts",
+    "test:runAgent": "dotenv -- tsx tests/runAgent.test.ts",
+    "test:mockAgent": "dotenv -- tsx tests/mockAgent.test.ts",
+    "test:scripts": "dotenv -- tsx tests/scripts.test.ts",
+    "test:integration": "dotenv -- tsx tests/integration.test.ts",
+    "test:quick": "npm run test:agent && npm run test:planner && npm run test:tools"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "dependencies": {
-    "@openai/agents": "^0.3.0",
-    "@openai/agents-core": "^0.3.0",
-    "@openai/agents-realtime": "^0.3.0",
+    "@openai/agents": "^0.3.3",
+    "@openai/agents-core": "^0.3.3",
+    "@openai/agents-realtime": "^0.3.3",
     "openai": "^6.8.1",
     "tsx": "^4.20.6",
     "zod": "^3.25.6"

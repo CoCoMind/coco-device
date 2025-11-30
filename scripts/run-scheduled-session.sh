@@ -10,6 +10,8 @@ NETWORK_RETRY_SECONDS="${NETWORK_RETRY_SECONDS:-300}"
 MAX_NETWORK_ATTEMPTS="${MAX_NETWORK_ATTEMPTS:-12}"
 SESSION_CMD="${SESSION_CMD:-/usr/local/bin/coco-native-agent-boot.sh}"
 CONNECTIVITY_PROBE="${CONNECTIVITY_PROBE:-https://www.google.com/generate_204}"
+API_DNS_CHECK="${API_DNS_CHECK:-api.openai.com}"
+MIN_SESSION_SECONDS="${MIN_SESSION_SECONDS:-10}"
 
 log() {
   local ts
@@ -36,13 +38,17 @@ load_env() {
 check_network_once() {
   local http_code
   http_code=$(curl -s --max-time 5 --connect-timeout 3 -o /dev/null -w "%{http_code}" "$CONNECTIVITY_PROBE" || true)
-  if [[ -n "$http_code" && "$http_code" != "000" ]]; then
-    return 0
+  if [[ -z "$http_code" || "$http_code" == "000" ]]; then
+    if ! ping -c1 -W3 1.1.1.1 >/dev/null 2>&1; then
+      return 1
+    fi
   fi
-  if ping -c1 -W3 1.1.1.1 >/dev/null 2>&1; then
-    return 0
+  # Also verify DNS resolution for the API endpoint
+  if ! getent hosts "$API_DNS_CHECK" >/dev/null 2>&1; then
+    log "DNS resolution failed for ${API_DNS_CHECK}"
+    return 1
   fi
-  return 1
+  return 0
 }
 
 wait_for_network() {
@@ -72,23 +78,41 @@ ensure_lock() {
 }
 
 run_session() {
-  local start_ts end_ts start_epoch end_epoch status sentiment
+  local start_ts end_ts start_epoch end_epoch duration status sentiment exit_code
   start_ts=$(date -Iseconds)
   start_epoch=$(date +%s)
   sentiment="${COCO_SENTIMENT_SUMMARY:-positive}"
 
   log "Starting scheduled Coco session (mode=${COCO_AGENT_MODE:-unset}, sentiment=${sentiment})."
   export SKIP_AGENT_LOCK=1
-  if bash -lc "${SESSION_CMD}" >> "${LOG_FILE}" 2>&1; then
-    status="success"
-  else
-    status="failed"
-  fi
+
+  # Run the session and capture exit code
+  set +e
+  bash -lc "${SESSION_CMD}" >> "${LOG_FILE}" 2>&1
+  exit_code=$?
+  set -e
+
   end_ts=$(date -Iseconds)
   end_epoch=$(date +%s)
-  log "Session finished status=${status} start=${start_ts} end=${end_ts} duration_seconds=$((end_epoch - start_epoch)) sentiment_summary=${sentiment}"
+  duration=$((end_epoch - start_epoch))
+
+  # Determine status based on exit code AND duration
+  if [[ $exit_code -ne 0 ]]; then
+    status="failed"
+    log "Session exited with code ${exit_code}"
+  elif [[ $duration -lt $MIN_SESSION_SECONDS ]]; then
+    status="crashed"
+    log "Session finished too quickly (${duration}s < ${MIN_SESSION_SECONDS}s minimum) - likely crashed"
+  else
+    status="success"
+  fi
+
+  log "Session finished status=${status} start=${start_ts} end=${end_ts} duration_seconds=${duration} sentiment_summary=${sentiment}"
   mkdir -p "$(dirname "$LAST_SESSION_FILE")"
   printf '%s\n' "$end_ts" > "$LAST_SESSION_FILE"
+
+  # Return non-zero if session failed or crashed
+  [[ "$status" == "success" ]]
 }
 
 main() {

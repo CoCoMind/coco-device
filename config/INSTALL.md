@@ -1,54 +1,86 @@
 # Coco Device Install Guide (Raspberry Pi OS Lite)
 
-## Prereqs
-- Raspberry Pi OS Lite flashed to SD card
-- SSH reachable (Ethernet or your own Wi-Fi setup)
-- GitHub repo URL for this project (set `REPO_URL` below)
+## Prerequisites
+- Raspberry Pi OS Lite (64-bit) flashed to SD card
+- SSH access enabled
+- Network connectivity (Ethernet or Wi-Fi)
 
-## One-liner bootstrap (run on the Pi)
+## Quick Install (recommended)
 ```bash
 curl -sSL https://raw.githubusercontent.com/jh2k2/coco-hardware-scripts/main/install.sh | sudo bash
 ```
 
-## Manual steps (if you prefer)
+## Manual Install
 ```bash
+# Install dependencies
 sudo apt-get update
 sudo apt-get install -y curl git alsa-utils build-essential
-# Install Node 20 (NodeSource)
+
+# Install Node.js 20
 curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
 sudo apt-get install -y nodejs
 
-REPO_URL=https://github.com/REPO_OWNER/REPO_NAME.git
-BRANCH=main
-RUN_USER=${SUDO_USER:-${USER}}
-cd /home/${RUN_USER}
-git clone "${REPO_URL}" coco-device
+# Clone and install
+cd ~
+git clone https://github.com/jh2k2/coco-hardware-scripts.git coco-device
 cd coco-device
 sudo ./install.sh --local
 ```
-Replace `REPO_URL`/`BRANCH` with `https://github.com/jh2k2/coco-hardware-scripts.git` and your target ref if not using the one-liner.
 
-## Configure env
+## Configuration
 ```bash
-cd /home/${USER}/coco-device
+cd ~/coco-device
 cp .env.example .env
-nano .env   # fill COCO_DEVICE_ID, COCO_USER_EXTERNAL_ID, COCO_PARTICIPANT_ID, COCO_BACKEND_URL, INGEST_SERVICE_TOKEN, OPENAI_API_KEY
+nano .env   # Fill in required values (see .env.example for documentation)
 ```
 
-## Start/enable services
+Required environment variables:
+- `COCO_DEVICE_ID` - Unique device identifier
+- `COCO_USER_EXTERNAL_ID` - User ID for backend
+- `COCO_PARTICIPANT_ID` - Participant ID
+- `COCO_BACKEND_URL` - Backend API URL
+- `INGEST_SERVICE_TOKEN` - Backend API token
+- `OPENAI_API_KEY` - OpenAI API key
+
+## Enable Services
 ```bash
 sudo systemctl daemon-reload
-sudo systemctl enable --now coco-agent-scheduler.timer coco-heartbeat.timer coco-update.timer
-# (coco-agent.service is available for manual runs if desired)
+sudo systemctl enable --now coco-agent-scheduler.timer coco-heartbeat.timer coco-update.timer coco-command-poller.timer
 ```
 
-## Update (pull latest)
+## Manual Session
+```bash
+sudo systemctl start coco-agent.service
+```
+
+## OTA Updates
 ```bash
 sudo /usr/local/bin/coco-update.sh
 ```
-The OTA timer (`coco-update.timer`) also runs daily at 02:30 with jitter. Disable it with `sudo systemctl disable --now coco-update.timer` if you need to pin a version.
+The `coco-update.timer` runs daily at 02:30 (±15min jitter). Disable with:
+```bash
+sudo systemctl disable --now coco-update.timer
+```
 
-## Logs & state
-- Session scheduler: /var/log/coco/session-scheduler.log
-- Heartbeat: /var/log/coco/heartbeat.log
-- Last session timestamp: /var/lib/coco/last_session_at
+## Logs & State
+| File | Purpose |
+|------|---------|
+| `/var/log/coco/agent.log` | Agent session logs |
+| `/var/log/coco/session-scheduler.log` | Scheduler logs |
+| `/var/log/coco/heartbeat.log` | Heartbeat logs |
+| `/var/log/coco/command-poller.log` | Command poller logs |
+| `/var/lib/coco/last_session_at` | Last session timestamp |
+| `/etc/coco-agent-version` | Installed version |
+
+## Troubleshooting
+```bash
+# Check service status
+systemctl status coco-agent-scheduler.timer
+journalctl -u coco-agent-scheduler.service --since "1 hour ago"
+
+# Check timer schedule
+systemctl list-timers --all | grep coco
+
+# Manual test run
+sudo systemctl start coco-agent-scheduler.service
+```

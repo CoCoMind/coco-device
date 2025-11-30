@@ -91,6 +91,7 @@ Coco is a cognitive coaching agent that runs on Raspberry Pi devices, providing 
 | `COCO_MAX_LISTEN_WINDOW_MS` | `20000` | Maximum participant listen time |
 | `COCO_FINAL_RESPONSE_WINDOW_MS` | `8000` | Wait time for final response |
 | `COCO_LISTEN_GRACE_MS` | `2000` | Grace period before timeout starts |
+| `COCO_MAX_SESSION_MS` | `900000` | Max session duration (15 min safety timeout) |
 
 ### Backend Communication
 

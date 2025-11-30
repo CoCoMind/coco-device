@@ -2,6 +2,7 @@
 Description=Run Coco scheduled session twice daily
 
 [Timer]
+# Run at 9 AM and 3 PM daily
 OnCalendar=*-*-* 09:00:00
 OnCalendar=*-*-* 15:00:00
 Persistent=true
