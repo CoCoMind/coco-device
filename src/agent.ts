@@ -1,7 +1,7 @@
 import { RealtimeAgent, RealtimeSession } from "@openai/agents/realtime";
 import OpenAI from "openai";
 import { Activity, buildPlan } from "./planner";
-import { createSessionIdentifiers, sendSessionSummary } from "./backend";
+import { createSessionIdentifiers, sendSessionSummary, SessionStatus } from "./backend";
 import { tools, setEndSessionCallback, clearEndSessionCallback } from "./tools";
 import { ALSA_SAMPLE_RATE, createAlsaAudioBinding } from "./audioIO";
 import log, { toLocalISO } from "./logger";
@@ -726,7 +726,13 @@ export function createAgent() {
   });
 }
 
-export async function startSession(ephemeralKey: string) {
+export interface SessionResult {
+  utteranceCount: number;
+  durationSec: number;
+  sentiment: string;
+}
+
+export async function startSession(ephemeralKey: string): Promise<SessionResult> {
   log.lifecycle("SESSION START", { model: REALTIME_MODEL, textOnly: TEXT_ONLY });
 
   // Global abort controller to cancel all pending operations on stop
@@ -835,7 +841,7 @@ export async function startSession(ephemeralKey: string) {
       if (!text) return;
       if (candidate.role === "user") {
         participantUtterances.push(text);
-        log.speech(`Participant: "${text}"`);
+        log.speech(`Participant: "${text.slice(0, 50)}${text.length > 50 ? "..." : ""}"`);
         const normalized = text.toLowerCase();
         if (
           normalized.includes("stop session") ||
@@ -878,16 +884,36 @@ export async function startSession(ephemeralKey: string) {
       }
     };
 
-    // Connect to Realtime (WebRTC in browser, WS in Node)
-    log.lifecycle("Connecting to OpenAI Realtime API...");
-    await session.connect({ apiKey: ephemeralKey });
-    log.lifecycle("✓ Connected to OpenAI Realtime API");
+    // Connect to Realtime (WebRTC in browser, WS in Node) with retry
+    const maxConnectRetries = 3;
+    let connected = false;
+    for (let attempt = 1; attempt <= maxConnectRetries && !connected; attempt++) {
+      try {
+        log.lifecycle(`Connecting to OpenAI Realtime API (attempt ${attempt}/${maxConnectRetries})...`);
+        await session.connect({ apiKey: ephemeralKey });
+        connected = true;
+        log.lifecycle("✓ Connected to OpenAI Realtime API");
+      } catch (connectError) {
+        log.error("agent", `Connection attempt ${attempt} failed`, connectError);
+        if (attempt === maxConnectRetries) {
+          throw connectError; // Re-throw on final attempt
+        }
+        // Exponential backoff: 1s, 2s, 4s
+        const backoffMs = 1000 * Math.pow(2, attempt - 1);
+        log.info("agent", `Retrying connection in ${backoffMs}ms...`);
+        await new Promise(resolve => setTimeout(resolve, backoffMs));
+      }
+    }
 
     // Dry-run mode: exit immediately after verifying connection works
     if (DRY_RUN) {
       log.lifecycle("DRY_RUN mode: Connection verified, exiting without running session");
       session.close();
-      return session;
+      return {
+        utteranceCount: 0,
+        durationSec: 0,
+        sentiment: "dry_run",
+      };
     }
 
     // Log tools registered with the agent
@@ -951,7 +977,7 @@ export async function startSession(ephemeralKey: string) {
       // Detect user saying "stop" via transcription - interrupt AI immediately
       if (e?.type === "conversation.item.input_audio_transcription.completed" && e?.transcript) {
         const normalized = e.transcript.toLowerCase();
-        log.speech(`User transcript: "${e.transcript}"`);
+        log.speech(`User transcript: "${e.transcript.slice(0, 50)}${e.transcript.length > 50 ? "..." : ""}"`);
         if (
           !stopRequested &&
           (normalized.includes("stop session") ||
@@ -1103,6 +1129,7 @@ export async function startSession(ephemeralKey: string) {
         ended_at: toLocalISO(tsEnd),
         duration_seconds: totalDurationSec,
         turn_count: 0,
+        status: "early_exit" as SessionStatus,
         sentiment_summary: "early_exit",
         sentiment_score: 0,
         notes: "Session ended early during intro phase",
@@ -1114,7 +1141,11 @@ export async function startSession(ephemeralKey: string) {
       log.debug("flow", "Session summary sent (early exit)");
 
       log.lifecycle("SESSION END (early stop)", { sessionId, durationSec: totalDurationSec });
-      return session;
+      return {
+        utteranceCount: 0,
+        durationSec: totalDurationSec,
+        sentiment: "early_exit",
+      };
     }
 
     // Only handle no-input if we didn't exit early
@@ -1283,6 +1314,9 @@ export async function startSession(ephemeralKey: string) {
     if (fullTranscriptNote.length > 1800) {
       log.warn("backend", `Session notes truncated from ${fullTranscriptNote.length} to 1800 chars`);
     }
+    // Determine session status based on user participation
+    const sessionStatus: SessionStatus = participantUtterances.length > 0 ? "success" : "unattended";
+
     const summaryPayload = {
       session_id: sessionId,
       plan_id: planId,
@@ -1294,6 +1328,7 @@ export async function startSession(ephemeralKey: string) {
       ended_at: toLocalISO(tsEnd),
       duration_seconds: totalDurationSec,
       turn_count: turnCount,
+      status: sessionStatus,
       sentiment_summary: sentiment?.summary,
       sentiment_score: sentiment?.score,
       notes:
@@ -1312,7 +1347,11 @@ export async function startSession(ephemeralKey: string) {
       sentiment: sentiment?.summary,
     });
 
-    return session;
+    return {
+      utteranceCount: participantUtterances.length,
+      durationSec: totalDurationSec,
+      sentiment: sentiment?.summary ?? "no_input",
+    };
   } finally {
     log.debug("cleanup", "Stopping audio binding and closing session");
     audioBinding.stop();
@@ -1353,6 +1392,7 @@ export async function startSession(ephemeralKey: string) {
         ended_at: toLocalISO(tsEnd),
         duration_seconds: totalDurationSec,
         turn_count: 0,
+        status: "error_exit" as SessionStatus,
         sentiment_summary: "error_exit",
         sentiment_score: 0,
         notes: "Session ended unexpectedly - fallback summary",

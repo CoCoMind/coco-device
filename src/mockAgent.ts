@@ -535,6 +535,7 @@ export async function runMockAgentSession() {
       Math.round((tsEnd.getTime() - tsStart.getTime()) / 1000),
     ),
     turn_count: 2,
+    status: "success" as const,
     sentiment_summary: sentiment.summary,
     sentiment_score: sentiment.score,
     notes:

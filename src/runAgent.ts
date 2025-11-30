@@ -1,6 +1,7 @@
-import { REALTIME_MODEL, startSession } from "./agent";
+import { REALTIME_MODEL, startSession, SessionResult } from "./agent";
 import { runMockAgentSession } from "./mockAgent";
-import log from "./logger";
+import { sendSessionStartFailed } from "./backend";
+import log, { toLocalISO } from "./logger";
 
 function isTextOnlyMode(): boolean {
   const modality = (process.env.OPENAI_OUTPUT_MODALITY ?? "").toLowerCase();
@@ -83,8 +84,40 @@ function resolveMode(): AgentMode {
 }
 
 async function runRealtime() {
-  const ephemeralKey =
-    process.env.OPENAI_EPHEMERAL_KEY ?? (await createEphemeralKey());
+  const deviceId = process.env.COCO_DEVICE_ID ?? process.env.HOSTNAME ?? "unknown-device";
+  const participantId = process.env.COCO_PARTICIPANT_ID;
+
+  // Try to get ephemeral key with retry
+  let ephemeralKey: string;
+  const maxKeyRetries = 3;
+  for (let attempt = 1; attempt <= maxKeyRetries; attempt++) {
+    try {
+      ephemeralKey = process.env.OPENAI_EPHEMERAL_KEY ?? (await createEphemeralKey());
+      break;
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      log.error("runAgent", `Ephemeral key fetch failed (attempt ${attempt}/${maxKeyRetries})`, error);
+
+      if (attempt === maxKeyRetries) {
+        // Send session_start_failed event to backend
+        await sendSessionStartFailed({
+          device_id: deviceId,
+          participant_id: participantId,
+          error_type: "ephemeral_key_fetch_failed",
+          error_message: errorMessage.slice(0, 500),
+          timestamp: toLocalISO(new Date()),
+        }).catch((e) => log.error("runAgent", "Failed to send session_start_failed", e));
+
+        log.error("runAgent", "All ephemeral key fetch attempts failed, exiting");
+        process.exit(1);
+      }
+
+      // Wait before retry (exponential backoff)
+      const backoffMs = 1000 * Math.pow(2, attempt - 1);
+      log.info("runAgent", `Retrying in ${backoffMs}ms...`);
+      await new Promise(resolve => setTimeout(resolve, backoffMs));
+    }
+  }
 
   // Set up forced exit timeout as a safety net (5 seconds after session should complete)
   const maxSessionMs = Number(process.env.COCO_MAX_SESSION_MS ?? "900000"); // 15 minutes default
@@ -94,19 +127,38 @@ async function runRealtime() {
   }, maxSessionMs);
   forceExitTimer.unref?.();
 
+  let result: SessionResult | undefined;
   try {
-    await startSession(ephemeralKey);
+    result = await startSession(ephemeralKey!);
     log.lifecycle("Session complete, exiting cleanly");
   } catch (error) {
     log.error("runAgent", "Session failed with error", error);
+
+    // Send session_start_failed for connection errors
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    if (errorMessage.includes("connect") || errorMessage.includes("WebSocket")) {
+      await sendSessionStartFailed({
+        device_id: deviceId,
+        participant_id: participantId,
+        error_type: "session_connection_failed",
+        error_message: errorMessage.slice(0, 500),
+        timestamp: toLocalISO(new Date()),
+      }).catch((e) => log.error("runAgent", "Failed to send session_start_failed", e));
+    }
   } finally {
     clearTimeout(forceExitTimer);
   }
 
   // Give a moment for cleanup, then force exit
+  // Exit code 2 = unattended (no user input detected)
+  // Exit code 0 = success (user participated)
+  const exitCode = result && result.utteranceCount === 0 ? 2 : 0;
+  if (exitCode === 2) {
+    log.lifecycle("Session was unattended (no user input), exiting with code 2");
+  }
   setTimeout(() => {
     log.lifecycle("Forcing exit after cleanup delay");
-    process.exit(0);
+    process.exit(exitCode);
   }, 500).unref?.();
 }
 

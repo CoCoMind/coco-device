@@ -97,7 +97,11 @@ run_session() {
   duration=$((end_epoch - start_epoch))
 
   # Determine status based on exit code AND duration
-  if [[ $exit_code -ne 0 ]]; then
+  # Exit codes: 0=success, 1=failed, 2=unattended (no user input)
+  if [[ $exit_code -eq 2 ]]; then
+    status="unattended"
+    log "Session completed but no user input detected (exit code 2)"
+  elif [[ $exit_code -ne 0 ]]; then
     status="failed"
     log "Session exited with code ${exit_code}"
   elif [[ $duration -lt $MIN_SESSION_SECONDS ]]; then
@@ -111,8 +115,8 @@ run_session() {
   mkdir -p "$(dirname "$LAST_SESSION_FILE")"
   printf '%s\n' "$end_ts" > "$LAST_SESSION_FILE"
 
-  # Return non-zero if session failed or crashed
-  [[ "$status" == "success" ]]
+  # Return non-zero if session failed or crashed (unattended is not a failure)
+  [[ "$status" == "success" || "$status" == "unattended" ]]
 }
 
 main() {

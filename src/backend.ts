@@ -13,6 +13,8 @@ const BACKEND_RETRIES = Math.max(
   Number(process.env.COCO_BACKEND_RETRIES ?? "1") || 0,
 );
 
+export type SessionStatus = "success" | "unattended" | "early_exit" | "error_exit";
+
 export type SessionSummaryPayload = {
   session_id: string;
   plan_id: string;
@@ -24,6 +26,7 @@ export type SessionSummaryPayload = {
   ended_at: string;
   duration_seconds: number;
   turn_count: number;
+  status: SessionStatus;
   sentiment_summary?: string;
   sentiment_score?: number;
   notes?: string;
@@ -128,4 +131,29 @@ export function createSessionIdentifiers() {
   };
   log.debug("backend", "Created session identifiers", ids);
   return ids;
+}
+
+export type SessionStartFailedPayload = {
+  device_id: string;
+  participant_id?: string;
+  error_type: string;
+  error_message: string;
+  timestamp: string;
+};
+
+export async function sendSessionStartFailed(payload: SessionStartFailedPayload) {
+  log.lifecycle("Sending session_start_failed to backend", {
+    device_id: payload.device_id,
+    error_type: payload.error_type,
+  });
+
+  await postJSON(
+    BACKEND_URL,
+    "/internal/ingest/session_start_failed",
+    payload,
+    "session_start_failed",
+    INGEST_TOKEN
+  );
+
+  log.lifecycle("session_start_failed send complete");
 }
