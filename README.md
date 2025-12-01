@@ -14,9 +14,13 @@ Hardware-ready Raspberry Pi build for the Coco voice agent. Provides realtime sp
    ```bash
    curl -sSL https://raw.githubusercontent.com/jh2k2/coco-hardware-scripts/main/install.sh | sudo bash
    ```
-3. Configure env:
+3. **Provision the device** (interactive script handles all configuration):
    ```bash
    cd ~/coco-device
+   sudo ./scripts/provision-device.sh
+   ```
+   Or configure manually:
+   ```bash
    cp .env.example .env
    nano .env   # fill COCO_DEVICE_ID, COCO_USER_EXTERNAL_ID, COCO_PARTICIPANT_ID, COCO_BACKEND_URL, INGEST_SERVICE_TOKEN, OPENAI_API_KEY
    ```
@@ -26,6 +30,7 @@ Hardware-ready Raspberry Pi build for the Coco voice agent. Provides realtime sp
    sudo systemctl enable --now coco-agent-scheduler.timer coco-heartbeat.timer coco-update.timer coco-command-poller.timer
    ```
 5. Logs live in `/var/log/coco/agent.log`, `/var/log/coco/session-scheduler.log`, and `/var/log/coco/heartbeat.log`.
+   Log rotation is configured automatically (7-day retention, 50MB max per file).
 
 See `config/INSTALL.md` for manual install steps and `config/DEVICE_SPEC.md` for full runtime details.
 

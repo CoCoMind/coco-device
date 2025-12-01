@@ -157,9 +157,12 @@ Coco is a cognitive coaching agent that runs on Raspberry Pi devices, providing 
 | Scenario | Behavior |
 |----------|----------|
 | No participant response | Agent continues with encouragement |
+| Ephemeral key fetch fails | 3 retries with exponential backoff, reports `session_start_failed` |
+| WebSocket connection fails | 3 retries with exponential backoff (1s, 2s, 4s) |
 | Network timeout | Exponential backoff retry (300ms, 600ms, 1200ms) |
 | Backend POST failure | Logs error, continues session |
 | "Stop"/"end session" detected | Graceful early termination |
+| Agent crash | Auto-restart after 10s (`Restart=on-failure`) |
 | OpenAI API error | Retry once, then throw |
 
 ---
@@ -187,6 +190,22 @@ Coco is a cognitive coaching agent that runs on Raspberry Pi devices, providing 
   "notes": "transcript excerpt (max 1800 chars)"
 }
 ```
+
+### Session Start Failed Endpoint
+`POST {COCO_BACKEND_URL}/internal/ingest/session_start_failed`
+
+**Payload:**
+```json
+{
+  "device_id": "string",
+  "participant_id": "string",
+  "error_type": "ephemeral_key_fetch_failed|session_connection_failed",
+  "error_message": "string (max 500 chars)",
+  "timestamp": "ISO8601"
+}
+```
+
+Sent when session fails to start (API key fetch or WebSocket connection failure).
 
 ### Heartbeat Endpoint
 `POST {COCO_BACKEND_URL}/internal/heartbeat`
@@ -279,15 +298,23 @@ Or on failure:
 ├── .env                    # Device configuration (gitignored)
 ├── .env.example            # Configuration template
 ├── src/                    # TypeScript source
-├── scripts/                # Shell scripts
+├── scripts/
+│   ├── provision-device.sh # Interactive device setup
+│   ├── coco-native-agent-boot.sh
+│   ├── run-scheduled-session.sh
+│   ├── coco-heartbeat.sh
+│   ├── coco-command-poller.sh
+│   └── coco-update.sh
 ├── systemd/                # Service unit files
-├── tests/                  # Test suite
-└── config/                 # Documentation
+├── config/
+│   └── logrotate-coco      # Log rotation config
+└── tests/                  # Test suite
 ```
 
 ### Runtime Files
 ```
 /etc/coco-agent-version           # Installed version string
+/etc/logrotate.d/coco             # Log rotation config
 /var/log/coco/
 ├── agent.log                     # Agent runtime logs
 ├── session-scheduler.log         # Scheduler logs
@@ -325,12 +352,25 @@ These can be identical across devices:
 - `COCO_BACKEND_URL`
 - `INGEST_SERVICE_TOKEN`
 
+### Provisioning Script
+Use the interactive provisioning script for new devices:
+```bash
+sudo ./scripts/provision-device.sh
+```
+The script handles:
+- Participant/device ID configuration
+- API key setup
+- Log rotation installation
+- Version file creation
+- Service restart
+
 ### Fleet Considerations
 
 | Concern | Current State | Recommendation |
 |---------|--------------|----------------|
-| Config provisioning | Manual `.env` setup | Create provisioning script |
-| Log aggregation | Local logs only | Add centralized logging |
+| Config provisioning | ✅ `provision-device.sh` script | Use for all new devices |
+| Log management | ✅ Logrotate (7-day, 50MB max) | Installed by provisioning script |
+| Log aggregation | Local logs + UPLOAD_LOGS command | Add centralized logging for scale |
 | Update rollout | All devices simultaneously | Implement canary groups |
 | Monitoring | 5-min heartbeat | Consider 1-2 min for faster detection |
 | Rate limiting | None | Add per-device throttling |
@@ -350,9 +390,10 @@ These can be identical across devices:
 - No certificate pinning
 
 ### Audio Privacy
-- Transcripts stored in logs (plaintext)
+- Transcripts truncated to 50 chars in logs for privacy
+- ✅ Log rotation configured (7-day retention, 50MB max)
 - Sentiment analysis processes participant speech
-- Recommend: Implement log rotation and encryption
+- Full transcripts (up to 1800 chars) sent to backend only
 
 ---
 
