@@ -33,10 +33,11 @@ if [[ "${SKIP_ENV_FILE:-0}" != "1" && -f .env ]]; then
   set +a
 fi
 
-export COCO_AGENT_MODE="${COCO_AGENT_MODE:-mock}"
-npm start "$@"
+# Use sync pipeline (TTS + STT + LLM)
+npm run start:sync "$@"
 status=$?
-if [[ $status -eq 0 ]]; then
+# Record session time for success (0) or unattended (2)
+if [[ $status -eq 0 || $status -eq 2 ]]; then
   mkdir -p "$(dirname "$LAST_SESSION_FILE")"
   date -Iseconds > "$LAST_SESSION_FILE" || true
 fi

@@ -77,9 +77,9 @@
     "type": "recall",
     "instructions": "Pair the phrase with a small hand motion or tapping cue. Repeat at increasing intervals.",
     "script": [
-      "Let’s say the phrase together once with a calm breath.",
-      "Now say it again while imagining the person who believes in you most standing beside you.",
-      "Let’s stretch the pause—inhale, exhale, and say it once more as if you’re gifting it to yourself."
+      "I have a calming phrase for us to practice together. Repeat after me: I am steady and supported.",
+      "Beautiful. Now say it again, and this time imagine someone who believes in you standing right beside you.",
+      "One more time. Take a deep breath in, let it out slowly, and say: I am steady and supported."
     ],
     "goal": "Install a calming script the user can reuse during the day.",
     "tags": ["memory", "mindfulness", "SR"]
@@ -128,9 +128,9 @@
     "type": "game",
     "instructions": "Keep scenarios personal (family picnic vs. cozy reading). Validate whichever associations arise.",
     "script": [
-      "I’ll name two moments (e.g., family picnic vs. quiet morning). You tell me who appears in each one first.",
-      "What colors or textures belong to each moment, and why?",
-      "Which feeling or object do you want to carry forward from each scene today?"
+      "Let's play a quick matching game. Picture two moments: a family gathering around a table, and a quiet morning alone with a cup of tea. Which one feels more like you today?",
+      "Now tell me: what color belongs to that moment, and why does that color fit?",
+      "What feeling or object from that moment would you like to carry with you for the rest of today?"
     ],
     "goal": "Engage cognitive flexibility with personally resonant material.",
     "tags": ["attention", "CST_mixers"]
