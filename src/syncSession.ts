@@ -17,7 +17,7 @@ if (typeof globalThis.File === "undefined") {
 import OpenAI, { toFile } from "openai";
 import { spawn } from "node:child_process";
 import { buildPlan, Activity } from "./planner";
-import { sendSessionSummary, createSessionIdentifiers, SessionSummaryPayload, SessionStatus } from "./backend";
+import { sendSessionSummary, createSessionIdentifiers, type SessionSummaryPayload, type SessionStatus } from "./backend";
 
 // Audio config
 const SAMPLE_RATE = 24000;
@@ -56,29 +56,31 @@ const SYSTEM_PROMPT = `You are Coco, a warm and supportive cognitive companion f
 Your personality:
 - Warm, patient, and genuinely interested
 - Use simple, clear language
-- Acknowledge what the person shares with specific details
 - Keep responses brief (1-2 sentences)
 - Never be condescending
 
-When acknowledging a response:
-- Reference something specific they said
-- Show genuine interest or appreciation
-- Smoothly transition to the next activity
+Your job is to gently guide conversation, drawing out memories and stories from the participant.`;
 
-When closing a session:
-- Summarize 1-2 highlights from what they shared
-- End with warmth and encouragement`;
+const MAX_TURNS_PER_ACTIVITY = 3; // Max back-and-forth before moving on
+
+interface LLMResponse {
+  text: string;
+  shouldFollowUp: boolean;
+}
 
 async function generateResponse(
   userMessage: string,
   activity: Activity,
+  turnNumber: number,
   isClosing: boolean = false
-): Promise<string> {
-  log(`LLM: Generating response...`);
+): Promise<LLMResponse> {
+  log(`LLM: Generating response (turn ${turnNumber})...`);
   const start = Date.now();
 
   // Add user message to history
-  conversationHistory.push({ role: "user", content: userMessage });
+  if (userMessage) {
+    conversationHistory.push({ role: "user", content: userMessage });
+  }
 
   // Build context for this specific response
   let contextPrompt = "";
@@ -86,42 +88,79 @@ async function generateResponse(
     contextPrompt = `The session is ending. Generate a personalized closing that:
 1. References 1-2 specific things they shared during the session
 2. Ends with warmth and encouragement
-Keep it to 2-3 sentences.`;
+Keep it to 2-3 sentences.
+
+Respond with JSON: {"text": "your closing message", "followUp": false}`;
   } else {
+    // Get follow-up prompts from activity script if available
+    const scriptPrompts = activity.script || [];
+    const nextScriptPrompt = scriptPrompts[turnNumber] || null;
+
     contextPrompt = `Activity: ${activity.title || activity.category}
 Goal: ${activity.goal || "Engage the participant"}
-Instructions: ${activity.instructions || "Acknowledge their response warmly"}
+Instructions: ${activity.instructions || "Draw out their story"}
+${nextScriptPrompt ? `Suggested follow-up: "${nextScriptPrompt}"` : ""}
 
-Generate a brief (1-2 sentence) acknowledgment that:
-1. References something specific from their response
-2. Shows genuine interest
-3. Transitions smoothly to continue`;
+The participant just said: "${userMessage}"
+
+Decide whether to follow up or move on:
+
+MOVE ON (followUp=false) if:
+- They gave a negative/dismissive response ("no", "nothing", "I don't know", "not really", "can't think of anything")
+- They've shared something meaningful or personal
+- They seem disengaged or want to move forward
+- This is turn ${turnNumber + 1} of ${MAX_TURNS_PER_ACTIVITY} (don't overstay)
+
+FOLLOW UP (followUp=true) ONLY if:
+- Their response is brief but positive/engaged (shows interest but needs gentle prompting)
+- There's a clear opportunity to draw out more detail they seem willing to share
+
+${turnNumber >= MAX_TURNS_PER_ACTIVITY - 1 ? "This is the LAST turn - wrap up warmly and move on." : ""}
+
+CRITICAL: Your response text must match your followUp decision:
+- If followUp=true: You MAY ask a gentle question to continue the conversation
+- If followUp=false: Give a COMPLETE acknowledgment with NO questions. Do NOT say "How about...", "Let's move on to...", "What about...", or anything that expects a response. Just warmly acknowledge what they shared and stop. The next activity will be introduced automatically.
+
+Respond with JSON: {"text": "your response", "followUp": true/false}`;
   }
 
   const messages: ChatMessage[] = [
     { role: "system", content: SYSTEM_PROMPT },
     ...conversationHistory,
-    { role: "user", content: `[INSTRUCTION: ${contextPrompt}]` }
+    { role: "user", content: contextPrompt }
   ];
 
   try {
     const response = await openai.chat.completions.create({
       model: "gpt-4o-mini",
       messages,
-      max_tokens: 150,
+      max_tokens: 200,
       temperature: 0.7,
     });
 
-    const reply = response.choices[0]?.message?.content?.trim() || "Thank you for sharing that.";
-    log(`LLM: "${reply.slice(0, 60)}..." in ${Date.now() - start}ms`);
+    const rawReply = response.choices[0]?.message?.content?.trim() || '{"text": "Thank you for sharing that.", "followUp": false}';
+
+    // Parse JSON response
+    let parsed: { text: string; followUp: boolean };
+    try {
+      // Handle case where LLM wraps in markdown code blocks
+      const jsonStr = rawReply.replace(/```json\n?|\n?```/g, '').trim();
+      parsed = JSON.parse(jsonStr);
+    } catch {
+      // Fallback if JSON parsing fails
+      log(`LLM: Failed to parse JSON, using raw response`);
+      parsed = { text: rawReply, followUp: false };
+    }
+
+    log(`LLM: "${parsed.text.slice(0, 50)}..." followUp=${parsed.followUp} in ${Date.now() - start}ms`);
 
     // Add assistant response to history
-    conversationHistory.push({ role: "assistant", content: reply });
+    conversationHistory.push({ role: "assistant", content: parsed.text });
 
-    return reply;
+    return { text: parsed.text, shouldFollowUp: parsed.followUp };
   } catch (err) {
     log(`LLM: Error - ${err}`);
-    return "Thank you for sharing that.";
+    return { text: "Thank you for sharing that.", shouldFollowUp: false };
   }
 }
 
@@ -131,8 +170,29 @@ function log(msg: string) {
 }
 
 function checkStopPhrase(text: string): boolean {
-  const lower = text.toLowerCase();
-  return STOP_PHRASES.some(phrase => lower.includes(phrase));
+  const lower = text.toLowerCase().trim();
+
+  // More strict matching - phrase must be:
+  // 1. The entire response, OR
+  // 2. At word boundaries (not part of another word like "bye" in "goodbye" or "my cats" misheard as "bye cats")
+  return STOP_PHRASES.some(phrase => {
+    // Exact match
+    if (lower === phrase) return true;
+
+    // Word boundary match using regex
+    const regex = new RegExp(`\\b${phrase}\\b`, 'i');
+    const match = regex.test(lower);
+
+    // Extra check: if phrase is short (like "bye", "thanks"), require it to be more intentional
+    // e.g., "bye" alone or "bye now" but not "bye cats" (likely mishearing)
+    if (match && phrase.length <= 4) {
+      // Short phrases need to be standalone or followed by common stop words
+      const standaloneRegex = new RegExp(`^${phrase}[.!]?$|^${phrase}\\s+(now|for now|coco|there)`, 'i');
+      return standaloneRegex.test(lower);
+    }
+
+    return match;
+  });
 }
 
 async function textToSpeech(text: string): Promise<Buffer> {
@@ -315,6 +375,11 @@ async function runSession(): Promise<SessionResult> {
   const transcripts: string[] = [];
   let stoppedEarly = false;
 
+  // Device and participant identifiers from environment
+  const deviceId = process.env.COCO_DEVICE_ID ?? process.env.HOSTNAME ?? "unknown-device";
+  const participantId = process.env.COCO_PARTICIPANT_ID;
+  const userExternalId = process.env.COCO_USER_EXTERNAL_ID ?? participantId;
+
   // Generate session identifiers
   const { sessionId, planId } = createSessionIdentifiers();
 
@@ -341,47 +406,73 @@ async function runSession(): Promise<SessionResult> {
     const isLastActivity = i === plan.length - 1;
     log(`\n--- Activity ${i + 1}/${plan.length}: ${activity.category} (${activity.id}) ---`);
 
-    const prompt = getActivityPrompt(activity);
-    conversationHistory.push({ role: "assistant", content: prompt });
-    await speak(prompt);
-
-    const transcript = await listenAndTranscribe();
-
-    if (transcript) {
-      transcripts.push(transcript);
-      log(`User: "${transcript}"`);
-
-      // Check for stop phrase
-      if (checkStopPhrase(transcript)) {
-        log(`Stop phrase detected!`);
-        stoppedEarly = true;
-        break;
-      }
-
-      // Generate contextual acknowledgment (skip for last activity - we'll do personalized closing)
-      if (!isLastActivity) {
-        const ack = await generateResponse(transcript, activity, false);
-        await speak(ack);
-      } else {
-        // For last activity, just add to history for closing
-        conversationHistory.push({ role: "user", content: transcript });
-      }
+    // For closing activity, skip the prompt - we'll generate a personalized closing after their response
+    if (isLastActivity) {
+      // Just ask a simple closing question
+      const closingQuestion = "Before we wrap up, is there anything else on your mind today?";
+      conversationHistory.push({ role: "assistant", content: closingQuestion });
+      await speak(closingQuestion);
     } else {
-      log(`No response captured`);
-      const noResponseMsg = "I didn't catch that, but let's keep going.";
-      conversationHistory.push({ role: "assistant", content: noResponseMsg });
-      if (!isLastActivity) {
+      // Initial activity prompt
+      const prompt = getActivityPrompt(activity);
+      conversationHistory.push({ role: "assistant", content: prompt });
+      await speak(prompt);
+    }
+
+    // Multi-turn conversation within activity
+    let turnNumber = 0;
+    let activityComplete = false;
+
+    while (!activityComplete && turnNumber < MAX_TURNS_PER_ACTIVITY) {
+      const transcript = await listenAndTranscribe();
+
+      if (transcript) {
+        transcripts.push(transcript);
+        log(`User (turn ${turnNumber + 1}): "${transcript}"`);
+
+        // Check for stop phrase
+        if (checkStopPhrase(transcript)) {
+          log(`Stop phrase detected!`);
+          stoppedEarly = true;
+          break;
+        }
+
+        // Generate response and decide whether to follow up
+        if (!isLastActivity) {
+          const response = await generateResponse(transcript, activity, turnNumber, false);
+          await speak(response.text);
+
+          if (response.shouldFollowUp && turnNumber < MAX_TURNS_PER_ACTIVITY - 1) {
+            // Continue conversation in this activity
+            turnNumber++;
+            log(`Continuing activity (turn ${turnNumber + 1})...`);
+          } else {
+            // Move to next activity
+            activityComplete = true;
+          }
+        } else {
+          // For last activity, just add to history for closing
+          conversationHistory.push({ role: "user", content: transcript });
+          activityComplete = true;
+        }
+      } else {
+        log(`No response captured`);
+        const noResponseMsg = "I didn't catch that, but let's keep going.";
+        conversationHistory.push({ role: "assistant", content: noResponseMsg });
         await speak(noResponseMsg);
+        activityComplete = true; // Move on if no response
       }
     }
+
+    if (stoppedEarly) break;
   }
 
   // Personalized closing
   if (!stoppedEarly && transcripts.length > 0) {
     // Generate personalized closing based on session
     const closingActivity = plan[plan.length - 1];
-    const personalizedClosing = await generateResponse("", closingActivity, true);
-    await speak(personalizedClosing);
+    const closingResponse = await generateResponse("", closingActivity, 0, true);
+    await speak(closingResponse.text);
   } else if (stoppedEarly) {
     await speak("It was lovely chatting with you. Take care!");
   } else {
@@ -407,9 +498,23 @@ async function runSession(): Promise<SessionResult> {
   log(`Status: ${status}`);
   log("========================================\n");
 
-  // Backend sending disabled for now
-  // TODO: Re-enable when backend fields are updated
-  log("Backend summary disabled (skipping)");
+  // Send session summary to backend
+  const payload: SessionSummaryPayload = {
+    session_id: sessionId,
+    plan_id: planId,
+    user_external_id: userExternalId,
+    participant_id: participantId,
+    device_id: deviceId,
+    started_at: startedAt,
+    ended_at: endedAt,
+    duration_seconds: durationSec,
+    turn_count: transcripts.length,
+    status,
+    sentiment_summary: status === "unattended" ? "neutral" : "positive",
+    sentiment_score: status === "unattended" ? 0.5 : 0.75,
+  };
+
+  await sendSessionSummary(payload);
 
   return {
     utteranceCount: transcripts.length,

@@ -1,109 +1,48 @@
 /**
- * Comprehensive logging utility with timestamps
+ * Simple logging utility for the sync pipeline.
  */
 
-type LogLevel = "debug" | "info" | "warn" | "error";
-
-const LOG_LEVEL = (process.env.COCO_LOG_LEVEL ?? "debug").toLowerCase() as LogLevel;
-const LOG_LEVELS: Record<LogLevel, number> = {
-  debug: 0,
-  info: 1,
-  warn: 2,
-  error: 3,
-};
-
-/** Format a Date as local ISO with timezone offset (e.g., 2025-11-29T00:58:42.326-08:00) */
-export function toLocalISO(date: Date = new Date()): string {
-  const offset = -date.getTimezoneOffset();
-  const sign = offset >= 0 ? "+" : "-";
-  const absOffset = Math.abs(offset);
-  const hours = String(Math.floor(absOffset / 60)).padStart(2, "0");
-  const minutes = String(absOffset % 60).padStart(2, "0");
-  return date.getFullYear() +
-    "-" + String(date.getMonth() + 1).padStart(2, "0") +
-    "-" + String(date.getDate()).padStart(2, "0") +
-    "T" + String(date.getHours()).padStart(2, "0") +
-    ":" + String(date.getMinutes()).padStart(2, "0") +
-    ":" + String(date.getSeconds()).padStart(2, "0") +
-    "." + String(date.getMilliseconds()).padStart(3, "0") +
-    sign + hours + ":" + minutes;
+function formatTs(): string {
+  return new Date().toISOString().slice(11, 23);
 }
 
-function timestamp(): string {
-  return toLocalISO();
-}
-
-function shouldLog(level: LogLevel): boolean {
-  return LOG_LEVELS[level] >= LOG_LEVELS[LOG_LEVEL];
-}
-
-function formatMessage(level: LogLevel, tag: string, message: string, data?: unknown): string {
-  const ts = timestamp();
-  const prefix = `[${ts}] [${level.toUpperCase()}] [${tag}]`;
+function log(level: string, component: string, message: string, data?: unknown) {
+  const ts = formatTs();
+  const prefix = `[${ts}] [${level}] [${component}]`;
   if (data !== undefined) {
-    const dataStr = typeof data === "string" ? data : JSON.stringify(data, null, 0);
-    return `${prefix} ${message} ${dataStr}`;
+    console.log(`${prefix} ${message}`, typeof data === "object" ? JSON.stringify(data) : data);
+  } else {
+    console.log(`${prefix} ${message}`);
   }
-  return `${prefix} ${message}`;
 }
 
-export const log = {
-  debug(tag: string, message: string, data?: unknown) {
-    if (shouldLog("debug")) {
-      console.debug(formatMessage("debug", tag, message, data));
+export default {
+  debug: (component: string, message: string, data?: unknown) => {
+    if (process.env.COCO_LOG_LEVEL === "debug") {
+      log("DEBUG", component, message, data);
     }
   },
-
-  info(tag: string, message: string, data?: unknown) {
-    if (shouldLog("info")) {
-      console.info(formatMessage("info", tag, message, data));
+  info: (component: string, message: string, data?: unknown) => {
+    log("INFO", component, message, data);
+  },
+  warn: (component: string, message: string, data?: unknown) => {
+    log("WARN", component, message, data);
+  },
+  error: (component: string, message: string, data?: unknown) => {
+    log("ERROR", component, message, data);
+  },
+  lifecycle: (message: string, data?: unknown) => {
+    log("LIFECYCLE", "session", message, data);
+  },
+  request: (method: string, url: string, body: unknown, attempt: number, totalAttempts: number) => {
+    log("HTTP", "request", `${method} ${url} (attempt ${attempt}/${totalAttempts})`, body);
+  },
+  response: (method: string, url: string, status: number, durationMs: number, body?: unknown) => {
+    const msg = `${method} ${url} -> ${status} (${durationMs}ms)`;
+    if (body !== undefined) {
+      log("HTTP", "response", msg, body);
+    } else {
+      log("HTTP", "response", msg);
     }
-  },
-
-  warn(tag: string, message: string, data?: unknown) {
-    if (shouldLog("warn")) {
-      console.warn(formatMessage("warn", tag, message, data));
-    }
-  },
-
-  error(tag: string, message: string, data?: unknown) {
-    if (shouldLog("error")) {
-      console.error(formatMessage("error", tag, message, data));
-    }
-  },
-
-  // Special formatted logs for specific events
-  request(method: string, url: string, payload?: unknown, attempt?: number, maxAttempts?: number) {
-    const attemptStr = attempt && maxAttempts ? ` (attempt ${attempt}/${maxAttempts})` : "";
-    log.info("http", `${method} ${url}${attemptStr}`);
-    if (payload) {
-      log.debug("http", "Request payload:", payload);
-    }
-  },
-
-  response(method: string, url: string, status: number, durationMs: number, body?: unknown) {
-    const emoji = status >= 200 && status < 300 ? "✓" : "✗";
-    log.info("http", `${emoji} ${method} ${url} → ${status} (${durationMs}ms)`);
-    if (body) {
-      log.debug("http", "Response body:", body);
-    }
-  },
-
-  lifecycle(event: string, details?: unknown) {
-    log.info("lifecycle", `◆ ${event}`, details);
-  },
-
-  audio(event: string, details?: unknown) {
-    log.debug("audio", `🔊 ${event}`, details);
-  },
-
-  speech(event: string, details?: unknown) {
-    log.info("speech", `🎤 ${event}`, details);
-  },
-
-  session(event: string, details?: unknown) {
-    log.info("session", `📍 ${event}`, details);
   },
 };
-
-export default log;

@@ -1,8 +1,8 @@
 # Synchronous Pipeline
 
-## Status: Phase 2 Complete
+## Status: Production Ready ✅
 
-The synchronous TTS + STT + LLM pipeline is working and ready for testing.
+The synchronous TTS + STT + LLM pipeline is complete and deployed.
 
 ## Quick Start
 
@@ -91,7 +91,7 @@ COCO: {LLM-generated personalized closing referencing session highlights}
 |------|---------|
 | `src/syncSession.ts` | Main sync session runner |
 | `src/planner.ts` | Activity selection |
-| `src/backend.ts` | Session summary (disabled) |
+| `src/backend.ts` | Session summary submission |
 | `docs/SYNC_PIPELINE.md` | This document |
 
 ## Migration Status
@@ -108,18 +108,28 @@ COCO: {LLM-generated personalized closing referencing session highlights}
 - [x] Personalized session closing
 - [x] Handle "no response" gracefully
 
-### Phase 3: Production Hardening (TODO)
-- [ ] Error handling and retries
-- [ ] Backend integration (session summaries)
-- [ ] Systemd service integration
-- [ ] Logging improvements
+### Phase 3: Production Hardening ✅
+- [x] Backend integration (session summaries)
+- [x] Systemd service integration (`coco-native-agent-boot.sh` → `npm run start:sync`)
+- [x] Multi-turn conversation within activities
+- [x] Session status tracking (success/unattended/early_exit)
 
-### Phase 4: Cleanup (TODO)
-- [ ] Remove Realtime dependencies
-- [ ] Update systemd services
-- [ ] Production deployment
+### Phase 4: Cleanup ✅
+- [x] Realtime code marked as deprecated in AGENT.md
+- [x] Updated systemd boot script
+- [x] Documentation updated
 
 ## Changelog
+
+### 2025-12-04 (Phase 3 & 4 - Production Ready)
+- Re-enabled backend integration with proper SessionSummaryPayload
+- Updated systemd boot script to use `npm run start:sync`
+- Added device_id, participant_id, user_external_id to payload
+- Session status tracking (success/unattended/early_exit)
+- Exit code 2 for unattended sessions
+- Marked Realtime code as deprecated in AGENT.md
+- Fixed activity scripts (memory_strength_phrase, attention_story_match)
+- Fixed LLM acknowledgments to not ask questions when moving on
 
 ### 2024-12-04 (Phase 2)
 - Added LLM brain with GPT-4o-mini
