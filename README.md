@@ -1,70 +1,103 @@
 # Coco Device
 
-Hardware-ready Raspberry Pi build for the Coco voice agent. Provides realtime speech I/O, twice-daily scheduled sessions, a heartbeat, and backend summaries.
+Raspberry Pi voice agent for cognitive companion sessions. Runs twice-daily 10-minute sessions with TTS, STT, and LLM-powered conversations.
 
-## What you need
-- Raspberry Pi OS Lite (64-bit) with SSH enabled
+## Architecture
+
+Simple synchronous pipeline:
+1. **TTS** (OpenAI) → Generate speech
+2. **Play** (aplay) → Output audio
+3. **Record** (arecord) → Capture user response
+4. **STT** (Whisper) → Transcribe audio
+5. **LLM** (GPT-4o-mini) → Generate contextual response
+6. Repeat for 6 activities
+
+## Requirements
+
+- Raspberry Pi OS Lite (64-bit) with SSH
 - Node.js 20+ and ALSA (`aplay`/`arecord`)
-- Backend URL + ingest token and device/user/participant IDs
-- OpenAI API key (or pre-minted realtime ephemeral key)
+- OpenAI API key
+- Backend URL + ingest token
 
-## Install on a Pi
-1. Flash Raspberry Pi OS Lite and get network access.
-2. Run the bootstrap (installs Node 20, pulls this repo, installs units/deps):
-   ```bash
-   curl -sSL https://raw.githubusercontent.com/jh2k2/coco-hardware-scripts/main/install.sh | sudo bash
-   ```
-3. **Provision the device** (interactive script handles all configuration):
-   ```bash
-   cd ~/coco-device
-   sudo ./scripts/provision-device.sh
-   ```
-   Or configure manually:
-   ```bash
-   cp .env.example .env
-   nano .env   # fill COCO_DEVICE_ID, COCO_USER_EXTERNAL_ID, COCO_PARTICIPANT_ID, COCO_BACKEND_URL, INGEST_SERVICE_TOKEN, OPENAI_API_KEY
-   ```
-4. Enable timers (agent service can be run manually):
-   ```bash
-   sudo systemctl daemon-reload
-   sudo systemctl enable --now coco-agent-scheduler.timer coco-heartbeat.timer coco-update.timer coco-command-poller.timer
-   ```
-5. Logs live in `/var/log/coco/agent.log`, `/var/log/coco/session-scheduler.log`, and `/var/log/coco/heartbeat.log`.
-   Log rotation is configured automatically (7-day retention, 50MB max per file).
+## Quick Install
 
-See `config/INSTALL.md` for manual install steps and `config/DEVICE_SPEC.md` for full runtime details.
+```bash
+# Bootstrap script (installs Node 20, clones repo, sets up systemd)
+curl -sSL https://raw.githubusercontent.com/jh2k2/coco-hardware-scripts/main/install.sh | sudo bash
 
-## Running locally (dev)
+# Provision device (interactive)
+cd ~/coco-device
+sudo ./scripts/provision-device.sh
+```
+
+## Manual Setup
+
 ```bash
 git clone https://github.com/jh2k2/coco-hardware-scripts.git coco-device
 cd coco-device
 npm install
 cp .env.example .env
-COCO_AGENT_MODE=mock npm start   # mock mode avoids realtime audio keys/hardware
+# Edit .env with your configuration
+npm start
 ```
-Realtime mode requires `COCO_AGENT_MODE=realtime`, `OPENAI_API_KEY`, and working ALSA devices.
+
+## Configuration
+
+Required environment variables (`.env`):
+
+| Variable | Description |
+|----------|-------------|
+| `OPENAI_API_KEY` | OpenAI API key for TTS/STT/LLM |
+| `COCO_DEVICE_ID` | Unique device identifier |
+| `COCO_USER_EXTERNAL_ID` | User identifier for backend |
+| `COCO_PARTICIPANT_ID` | Participant ID |
+| `COCO_BACKEND_URL` | Backend API URL |
+| `INGEST_SERVICE_TOKEN` | Backend auth token |
+
+Optional:
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `COCO_AUDIO_DISABLE` | `0` | Set to `1` to disable audio (dry run) |
+| `COCO_AUDIO_OUTPUT_DEVICE` | `pulse` | ALSA output device |
+| `COCO_AUDIO_INPUT_DEVICE` | `pulse` | ALSA input device |
 
 ## Tests
+
 ```bash
-npm test                  # typecheck + all tests
-npm run typecheck         # TypeScript type checking only
-npm run test:all          # run all test suites
-npm run test:agent        # agent unit tests (45 tests)
-npm run test:planner      # planner tests (14 tests)
-npm run test:tools        # tools tests (15 tests)
-npm run test:telemetry    # telemetry tests (13 tests)
-npm run test:scripts      # shell script validation (35 tests)
-npm run test:integration  # integration tests (37 tests)
-npm run test:backend      # backend API tests
+npm test              # typecheck + all tests
+npm run test:backend  # backend API tests (9 tests)
+npm run test:planner  # planner tests (14 tests)
+npm run test:scripts  # shell script validation (35 tests)
 ```
 
-## Key configuration (see `.env.example`)
-- Identity/backend: `COCO_DEVICE_ID`, `COCO_USER_EXTERNAL_ID`, `COCO_PARTICIPANT_ID`, `COCO_BACKEND_URL`, `INGEST_SERVICE_TOKEN` (or `COCO_BACKEND_API_KEY`).
-- Agent/audio: `COCO_AGENT_MODE`, `OPENAI_API_KEY`, `OPENAI_OUTPUT_MODALITY`, `OPENAI_VOICE`, `REALTIME_MODEL`, `COCO_AUDIO_*`.
-- Network resilience: `COCO_BACKEND_TIMEOUT_MS`, `COCO_BACKEND_RETRIES`, `COCO_EPHEMERAL_KEY_TIMEOUT_MS`.
+## Systemd Services
 
-## Updating on device
+| Service | Description |
+|---------|-------------|
+| `coco-agent-scheduler.timer` | Runs sessions at 9am and 3pm |
+| `coco-heartbeat.timer` | Sends heartbeat every 5 minutes |
+| `coco-update.timer` | Daily OTA updates at 2:30am |
+| `coco-command-poller.timer` | Polls for remote commands |
+
+Enable all:
 ```bash
-sudo /usr/local/bin/coco-update.sh
+sudo systemctl daemon-reload
+sudo systemctl enable --now coco-agent-scheduler.timer coco-heartbeat.timer coco-update.timer coco-command-poller.timer
 ```
-OTA: `coco-update.timer` runs daily at 02:30 with 15-minute jitter to pull the latest tag/branch, reinstall scripts/units, npm install, and restart services. Disable with `sudo systemctl disable --now coco-update.timer` if you need to pin a version.
+
+## Logs
+
+- `/var/log/coco/agent.log` - Session logs
+- `/var/log/coco/session-scheduler.log` - Scheduler logs
+- `/var/log/coco/heartbeat.log` - Heartbeat logs
+
+## Curriculum
+
+Activity content is in `config/curriculum/activities.json`. See `config/curriculum/README.md` for editing guide.
+
+## Documentation
+
+- [DEVICE_SPEC.md](config/DEVICE_SPEC.md) - Full device specification
+- [INSTALL.md](config/INSTALL.md) - Manual installation guide
+- [SYNC_PIPELINE.md](docs/SYNC_PIPELINE.md) - Pipeline architecture

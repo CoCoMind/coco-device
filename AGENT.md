@@ -35,7 +35,7 @@ for each activity:
 | `src/syncSession.ts` | Main session runner |
 | `src/planner.ts` | Activity selection and plan building |
 | `src/backend.ts` | Session summary submission to backend |
-| `src/content/activities.json` | Activity definitions |
+| `config/curriculum/activities.json` | Activity definitions |
 
 ## Session Flow
 

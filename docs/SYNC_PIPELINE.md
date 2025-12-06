@@ -71,7 +71,7 @@ COCO: {LLM-generated personalized closing referencing session highlights}
 |-------|--------------|
 | TTS | 1-4s |
 | Playback | 2-7s |
-| Recording | 5-20s |
+| Recording | 5-60s (dynamic) |
 | STT | 1-5s |
 | LLM | 1-2s |
 
@@ -120,6 +120,14 @@ COCO: {LLM-generated personalized closing referencing session highlights}
 - [x] Documentation updated
 
 ## Changelog
+
+### 2025-12-05 (v0.1.2 - UX Improvements)
+- Dynamic recording: 30s initial cap, extends to 60s if user still speaking
+- Fixed followUp=true always includes question (MAY → MUST)
+- Fixed last turn handling: no question asked on final turn
+- Fixed unattended sessions now send summary to backend
+- Readiness check with 3 attempts before marking unattended
+- Retry prompts when user not heard (up to 2 retries per turn)
 
 ### 2025-12-04 (Phase 3 & 4 - Production Ready)
 - Re-enabled backend integration with proper SessionSummaryPayload
