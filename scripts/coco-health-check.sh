@@ -267,10 +267,10 @@ check_network() {
   # Check backend URL reachability
   if [[ -n "${COCO_BACKEND_URL:-}" ]]; then
     local backend_host=$(echo "$COCO_BACKEND_URL" | sed 's|https\?://||' | cut -d/ -f1)
-    if curl -s --connect-timeout 5 -o /dev/null -w "%{http_code}" "${COCO_BACKEND_URL}/health" 2>/dev/null | grep -qE '^[23]'; then
+    if curl -s --connect-timeout 5 -o /dev/null -w "%{http_code}" "${COCO_BACKEND_URL}/healthz" 2>/dev/null | grep -qE '^[23]'; then
       pass "Backend reachable: $COCO_BACKEND_URL"
     elif ping -c 1 -W 3 "$backend_host" &>/dev/null; then
-      warn "Backend host reachable but /health endpoint failed"
+      warn "Backend host reachable but /healthz endpoint failed"
     else
       fail "Backend unreachable: $COCO_BACKEND_URL"
     fi
