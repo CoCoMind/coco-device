@@ -130,8 +130,9 @@ Coco is a cognitive companion that runs on Raspberry Pi devices, providing twice
 | Sample rate | 24000 Hz |
 | Channels | 1 (mono) |
 | Format | S16_LE |
-| Max record time | 20 seconds |
-| Silence threshold | 500 RMS |
+| Initial record cap | 30 seconds |
+| Extended record cap | 60 seconds (if still speaking) |
+| Min speech RMS | 300 |
 | Silence duration | 2500 ms |
 
 ---

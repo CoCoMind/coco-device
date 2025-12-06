@@ -28,7 +28,9 @@ const INPUT_DEVICE = process.env.COCO_AUDIO_INPUT_DEVICE ?? "pulse";
 const AUDIO_DISABLED = process.env.COCO_AUDIO_DISABLE === "1";
 
 // Recording config
-const MAX_RECORD_SECONDS = 20;
+const INITIAL_RECORD_SECONDS = 30; // Initial recording cap
+const MAX_RECORD_SECONDS = 60;     // Absolute max (extended if still speaking)
+const EXTEND_IF_SPEAKING_WITHIN_MS = 3000; // Extend if spoke in last 3 seconds
 const SILENCE_THRESHOLD = 500;
 const SILENCE_DURATION_MS = 2500;
 
@@ -141,10 +143,10 @@ FOLLOW UP (followUp=true) ONLY if:
 - Their response is brief but positive/engaged (shows interest but needs gentle prompting)
 - There's a clear opportunity to draw out more detail they seem willing to share
 
-${turnNumber >= MAX_TURNS_PER_ACTIVITY - 1 ? "This is the LAST turn - wrap up warmly and move on." : ""}
+${turnNumber >= MAX_TURNS_PER_ACTIVITY - 1 ? "This is the LAST turn - you MUST set followUp=false and wrap up warmly. Do NOT ask a question." : ""}
 
 CRITICAL: Your response text must match your followUp decision:
-- If followUp=true: You MAY ask a gentle question to continue the conversation
+- If followUp=true: You MUST end with a clear, gentle question so the user knows to respond
 - If followUp=false: Give a COMPLETE acknowledgment with NO questions. Do NOT say "How about...", "Let's move on to...", "What about...", or anything that expects a response. Just warmly acknowledge what they shared and stop. The next activity will be introduced automatically.
 
 Respond with JSON: {"text": "your response", "followUp": true/false}`;
@@ -176,6 +178,12 @@ Respond with JSON: {"text": "your response", "followUp": true/false}`;
       // Fallback if JSON parsing fails
       log(`LLM: Failed to parse JSON, using raw response`);
       parsed = { text: rawReply, followUp: false };
+    }
+
+    // Force followUp=false on last turn (safeguard if LLM ignores instruction)
+    if (turnNumber >= MAX_TURNS_PER_ACTIVITY - 1 && parsed.followUp) {
+      log(`LLM: Forcing followUp=false (last turn)`);
+      parsed.followUp = false;
     }
 
     log(`LLM: "${parsed.text.slice(0, 50)}..." followUp=${parsed.followUp} in ${Date.now() - start}ms`);
@@ -290,7 +298,7 @@ async function recordAudio(): Promise<RecordingResult> {
     return { buffer: Buffer.alloc(0), hasHeardSpeech: false, peakRMS: 0 };
   }
 
-  log(`Record: max=${MAX_RECORD_SECONDS}s, silence=${SILENCE_DURATION_MS}ms`);
+  log(`Record: initial=${INITIAL_RECORD_SECONDS}s, max=${MAX_RECORD_SECONDS}s, silence=${SILENCE_DURATION_MS}ms`);
   const start = Date.now();
 
   return new Promise((resolve, reject) => {
@@ -298,24 +306,50 @@ async function recordAudio(): Promise<RecordingResult> {
     let silenceStart: number | null = null;
     let hasHeardSpeech = false;
     let peakRMS = 0;
+    let lastSpeechTime = 0;
+    let currentMaxMs = INITIAL_RECORD_SECONDS * 1000;
+    let extended = false;
 
     const arecord = spawn("arecord", [
       "-t", "raw", "-f", SAMPLE_FORMAT, "-c", String(CHANNELS),
       "-r", String(SAMPLE_RATE), "-q", "-D", INPUT_DEVICE, "-",
     ], { stdio: ["ignore", "pipe", "inherit"] });
 
-    const maxTimer = setTimeout(() => {
-      log(`Record: Max duration reached`);
+    // Check periodically if we should extend or stop
+    const checkTimer = setInterval(() => {
+      const elapsed = Date.now() - start;
+
+      // If past initial cap, check if still speaking
+      if (elapsed >= currentMaxMs) {
+        const timeSinceLastSpeech = Date.now() - lastSpeechTime;
+
+        if (!extended && timeSinceLastSpeech < EXTEND_IF_SPEAKING_WITHIN_MS && elapsed < MAX_RECORD_SECONDS * 1000) {
+          // User was recently speaking - extend to absolute max
+          extended = true;
+          currentMaxMs = MAX_RECORD_SECONDS * 1000;
+          log(`Record: Extended to ${MAX_RECORD_SECONDS}s (user still speaking)`);
+        } else {
+          // Time's up
+          log(`Record: Max duration reached (${Math.round(elapsed / 1000)}s)`);
+          arecord.kill("SIGTERM");
+        }
+      }
+    }, 500);
+
+    const absoluteMaxTimer = setTimeout(() => {
+      log(`Record: Absolute max reached`);
       arecord.kill("SIGTERM");
     }, MAX_RECORD_SECONDS * 1000);
 
     arecord.on("error", (err) => {
-      clearTimeout(maxTimer);
+      clearInterval(checkTimer);
+      clearTimeout(absoluteMaxTimer);
       reject(err);
     });
 
     arecord.on("exit", () => {
-      clearTimeout(maxTimer);
+      clearInterval(checkTimer);
+      clearTimeout(absoluteMaxTimer);
       const fullBuffer = Buffer.concat(chunks);
       log(`Record: ${fullBuffer.length} bytes, peakRMS=${Math.round(peakRMS)}, speech=${hasHeardSpeech} in ${Date.now() - start}ms`);
       resolve({ buffer: fullBuffer, hasHeardSpeech, peakRMS });
@@ -330,6 +364,7 @@ async function recordAudio(): Promise<RecordingResult> {
       if (!isSilent) {
         hasHeardSpeech = true;
         silenceStart = null;
+        lastSpeechTime = Date.now(); // Track when user last spoke
       } else if (hasHeardSpeech) {
         if (silenceStart === null) {
           silenceStart = Date.now();
@@ -522,6 +557,24 @@ async function runSession(): Promise<SessionResult> {
     log(`No response after ${MAX_READINESS_ATTEMPTS} readiness attempts - ending session`);
     await speak("I'll be here when you're ready. Take care!");
     const durationSec = Math.round((Date.now() - sessionStart) / 1000);
+
+    // Send unattended session summary to backend
+    const payload: SessionSummaryPayload = {
+      session_id: sessionId,
+      plan_id: planId,
+      user_external_id: userExternalId,
+      participant_id: participantId,
+      device_id: deviceId,
+      started_at: new Date(sessionStart).toISOString(),
+      ended_at: new Date().toISOString(),
+      duration_seconds: durationSec,
+      turn_count: 0,
+      status: "unattended",
+      sentiment_summary: "neutral",
+      sentiment_score: 0.5,
+    };
+    await sendSessionSummary(payload);
+
     return { utteranceCount: 0, durationSec, transcripts: [], stoppedEarly: false };
   }
 

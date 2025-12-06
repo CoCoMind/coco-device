@@ -123,6 +123,23 @@ read_last_session() {
   fi
 }
 
+read_boot_time() {
+  # Calculate boot time from /proc/uptime
+  if [ -f /proc/uptime ]; then
+    local uptime_seconds
+    uptime_seconds=$(cut -d' ' -f1 < /proc/uptime)
+    # Remove decimal portion for arithmetic
+    local uptime_int=${uptime_seconds%.*}
+    local now_epoch
+    now_epoch=$(date +%s)
+    local boot_epoch=$((now_epoch - uptime_int))
+    BOOT_TIME=$(date -u -d "@$boot_epoch" --iso-8601=seconds)
+  else
+    BOOT_TIME=""
+    log "could not read boot time from /proc/uptime"
+  fi
+}
+
 map_agent_status() {
   local state
   state=$(systemctl is-active coco-agent.service 2>/dev/null || true)
@@ -167,6 +184,7 @@ payload = {
     },
     "agent_status": os.environ.get("AGENT_STATUS", "degraded"),
     "last_session_at": none_if_empty(os.environ.get("LAST_SESSION_AT")),
+    "boot_time": none_if_empty(os.environ.get("BOOT_TIME")),
 }
 print(json.dumps(payload))
 PY
@@ -210,6 +228,7 @@ main() {
   collect_connectivity
   measure_latency
   read_last_session
+  read_boot_time
   map_agent_status
 
   missing=()
@@ -223,7 +242,7 @@ main() {
     AGENT_STATUS="crashed"
   fi
 
-  export CONNECTIVITY NETWORK_IFACE IP_ADDRESS RSSI LATENCY_MS LAST_SESSION_AT AGENT_STATUS AGENT_VERSION
+  export CONNECTIVITY NETWORK_IFACE IP_ADDRESS RSSI LATENCY_MS LAST_SESSION_AT BOOT_TIME AGENT_STATUS AGENT_VERSION
   build_payload
 
   if [ ${#missing[@]} -gt 0 ] && { [ -z "${COCO_BACKEND_URL:-}" ] || [ -z "${INGEST_SERVICE_TOKEN:-}" ]; }; then
