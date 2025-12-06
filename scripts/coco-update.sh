@@ -12,6 +12,32 @@ log() {
   echo "${ts} [coco-update] $*"
 }
 
+die() {
+  log "ERROR: $*"
+  exit 1
+}
+
+get_latest_tag() {
+  # Get latest tag, filtering out annotated tag dereferenced entries (^{})
+  # and extracting just the tag name
+  sudo -u "$RUN_USER" git ls-remote --tags --sort=v:refname origin 2>/dev/null \
+    | grep -v '\^{}' \
+    | tail -n1 \
+    | sed 's#.*/##'
+}
+
+validate_ref() {
+  local ref="$1"
+  # Check if ref exists as a branch or tag on origin
+  if sudo -u "$RUN_USER" git ls-remote --exit-code origin "refs/heads/${ref}" >/dev/null 2>&1; then
+    return 0
+  fi
+  if sudo -u "$RUN_USER" git ls-remote --exit-code origin "refs/tags/${ref}" >/dev/null 2>&1; then
+    return 0
+  fi
+  return 1
+}
+
 install_bins() {
   log "Updating launcher scripts in /usr/local/bin"
   install -m 755 "${INSTALL_DIR}/scripts/coco-native-agent-boot.sh" /usr/local/bin/coco-native-agent-boot.sh
@@ -57,21 +83,46 @@ install_units() {
   systemctl enable coco-agent-scheduler.timer coco-heartbeat.timer coco-update.timer coco-command-poller.timer
 }
 
-cd "$INSTALL_DIR"
+cd "$INSTALL_DIR" || die "Cannot cd to ${INSTALL_DIR}"
+
+# Save current commit for potential rollback info
+PREV_COMMIT=$(git rev-parse HEAD 2>/dev/null || echo "unknown")
+log "Current commit: ${PREV_COMMIT}"
+
 target_ref="${BRANCH}"
 if [[ "${BRANCH}" == "latest-tag" ]]; then
-  # Run git as the user who owns the repo (has SSH keys)
-  target_ref="$(sudo -u "$RUN_USER" git ls-remote --tags --sort=v:refname origin | tail -n1 | sed 's#.*/##')"
+  target_ref="$(get_latest_tag)"
   target_ref="${target_ref:-main}"
   log "Resolved latest tag to ${target_ref}"
 fi
+
+# Validate target ref exists before proceeding
+if ! validate_ref "$target_ref"; then
+  die "Target ref '${target_ref}' not found on origin"
+fi
+
 log "Fetching latest ${target_ref}"
-sudo -u "$RUN_USER" git fetch --all --tags
-sudo -u "$RUN_USER" git reset --hard "origin/${target_ref}" || sudo -u "$RUN_USER" git reset --hard "${target_ref}"
+if ! sudo -u "$RUN_USER" git fetch --all --tags; then
+  die "git fetch failed"
+fi
+
+# Try reset to origin/branch first, then bare ref (for tags)
+if ! sudo -u "$RUN_USER" git reset --hard "origin/${target_ref}" 2>/dev/null; then
+  if ! sudo -u "$RUN_USER" git reset --hard "${target_ref}"; then
+    die "git reset failed for ref '${target_ref}'"
+  fi
+fi
+
+NEW_COMMIT=$(git rev-parse HEAD 2>/dev/null || echo "unknown")
+log "Updated to commit: ${NEW_COMMIT}"
 install_bins
 install_units
+
 log "Installing npm dependencies"
-sudo -u "$RUN_USER" npm install
+if ! sudo -u "$RUN_USER" npm install --omit=dev 2>&1; then
+  log "WARN: npm install failed, attempting to continue"
+fi
+
 if command -v node >/dev/null 2>&1 && [[ -f "${INSTALL_DIR}/package.json" ]]; then
   version=$(cd "${INSTALL_DIR}" && node -p "require('./package.json').version" 2>/dev/null || true)
   if [[ -n "${version:-}" ]]; then
@@ -79,10 +130,18 @@ if command -v node >/dev/null 2>&1 && [[ -f "${INSTALL_DIR}/package.json" ]]; th
     log "Updated /etc/coco-agent-version to ${version}"
   fi
 fi
+
 log "Restarting services"
-systemctl restart coco-agent.service
-systemctl restart coco-agent-scheduler.timer
-systemctl restart coco-heartbeat.timer
-systemctl restart coco-update.timer
-systemctl restart coco-command-poller.timer
-log "Update complete"
+restart_failed=0
+for svc in coco-agent.service coco-agent-scheduler.timer coco-heartbeat.timer coco-update.timer coco-command-poller.timer; do
+  if ! systemctl restart "$svc" 2>/dev/null; then
+    log "WARN: Failed to restart $svc"
+    restart_failed=1
+  fi
+done
+
+if [[ $restart_failed -eq 1 ]]; then
+  log "Update complete with warnings (some services failed to restart)"
+else
+  log "Update complete"
+fi
