@@ -223,7 +223,7 @@ execute_command() {
       ;;
     UPDATE_NOW)
       log "executing UPDATE_NOW"
-      /usr/local/bin/coco-update.sh
+      sudo /usr/local/bin/coco-update.sh
       ;;
     *)
       log "unknown command: $cmd_type"

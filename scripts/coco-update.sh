@@ -5,11 +5,18 @@ RUN_USER="${COCO_RUN_USER:-${SUDO_USER:-${USER:-pi}}}"
 RUN_HOME="${RUN_HOME:-$(getent passwd "$RUN_USER" | cut -d: -f6 || echo "/home/${RUN_USER}")}"
 INSTALL_DIR="${INSTALL_DIR:-${RUN_HOME}/coco-device}"
 BRANCH="${BRANCH:-latest-tag}"
+LOG_FILE="${COCO_UPDATE_LOG_FILE:-/var/log/coco/update.log}"
+
+ensure_log_file() {
+  mkdir -p "$(dirname "$LOG_FILE")"
+  touch "$LOG_FILE"
+  chmod 644 "$LOG_FILE"
+}
 
 log() {
   local ts
   ts=$(date -Iseconds)
-  echo "${ts} [coco-update] $*"
+  echo "${ts} [coco-update] $*" | tee -a "$LOG_FILE"
 }
 
 die() {
@@ -83,6 +90,7 @@ install_units() {
   systemctl enable coco-agent-scheduler.timer coco-heartbeat.timer coco-update.timer coco-command-poller.timer
 }
 
+ensure_log_file
 cd "$INSTALL_DIR" || die "Cannot cd to ${INSTALL_DIR}"
 
 # Save current commit for potential rollback info
