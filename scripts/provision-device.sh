@@ -73,21 +73,17 @@ fi
 # OpenAI API Key
 read -p "OpenAI API Key: " OPENAI_KEY
 if [[ -z "$OPENAI_KEY" ]]; then
-    log_error "OpenAI API Key is required for realtime sessions"
+    log_error "OpenAI API Key is required for TTS/STT/LLM"
     exit 1
 fi
 
 # Audio device configuration
 echo ""
 log_info "Audio device configuration (run 'aplay -l' to list devices)"
-read -p "Audio Output Device [plughw:3,0]: " AUDIO_OUT
-AUDIO_OUT="${AUDIO_OUT:-plughw:3,0}"
-read -p "Audio Input Device [plughw:3,0]: " AUDIO_IN
-AUDIO_IN="${AUDIO_IN:-plughw:3,0}"
-
-# Agent mode
-read -p "Agent Mode (realtime/mock) [realtime]: " AGENT_MODE
-AGENT_MODE="${AGENT_MODE:-realtime}"
+read -p "Audio Output Device [pulse]: " AUDIO_OUT
+AUDIO_OUT="${AUDIO_OUT:-pulse}"
+read -p "Audio Input Device [pulse]: " AUDIO_IN
+AUDIO_IN="${AUDIO_IN:-pulse}"
 
 # Write .env file
 log_info "Writing configuration to $ENV_FILE"
@@ -110,41 +106,11 @@ INGEST_SERVICE_TOKEN=${INGEST_TOKEN}
 OPENAI_API_KEY=${OPENAI_KEY}
 
 # ============================================
-# Agent Behavior
-# ============================================
-COCO_AGENT_MODE=${AGENT_MODE}
-COCO_SESSION_LABEL=coco-realtime-autostart-session
-OPENAI_OUTPUT_MODALITY=audio
-OPENAI_VOICE=verse
-REALTIME_MODEL=gpt-4o-mini-realtime-preview-2024-12-17
-COCO_SENTIMENT_MODEL=gpt-4o-mini
-
-# ============================================
-# Session Timing (milliseconds)
-# ============================================
-COCO_INTRO_RESPONSE_WINDOW_MS=8000
-COCO_MIN_LISTEN_WINDOW_MS=12000
-COCO_MAX_LISTEN_WINDOW_MS=20000
-COCO_FINAL_RESPONSE_WINDOW_MS=8000
-COCO_LISTEN_GRACE_MS=2000
-COCO_MAX_SESSION_MS=900000
-
-# ============================================
 # Audio Hardware (ALSA)
 # ============================================
 COCO_AUDIO_OUTPUT_DEVICE=${AUDIO_OUT}
 COCO_AUDIO_INPUT_DEVICE=${AUDIO_IN}
-COCO_AUDIO_SAMPLE_RATE=24000
-COCO_AUDIO_SAMPLE_FORMAT=S16_LE
-COCO_AUDIO_INPUT_DISABLE=0
 COCO_AUDIO_DISABLE=0
-
-# ============================================
-# Network Resilience
-# ============================================
-COCO_BACKEND_TIMEOUT_MS=10000
-COCO_BACKEND_RETRIES=2
-COCO_EPHEMERAL_KEY_TIMEOUT_MS=15000
 
 # ============================================
 # Logging
@@ -195,12 +161,11 @@ echo "============================================"
 echo ""
 echo "Device ID:      $DEVICE_ID"
 echo "Participant ID: $PARTICIPANT_ID"
-echo "Agent Mode:     $AGENT_MODE"
 echo "Version:        $AGENT_VERSION"
 echo ""
 echo "Next steps:"
-echo "  1. Test audio: aplay -D $AUDIO_OUT /usr/share/sounds/alsa/Front_Center.wav"
+echo "  1. Test audio: speaker-test -D $AUDIO_OUT -c 1 -t sine -f 440 -l 1"
 echo "  2. Test mic:   arecord -D $AUDIO_IN -d 3 -f S16_LE -r 24000 test.wav && aplay test.wav"
-echo "  3. Run test:   sudo systemctl start coco-agent.service"
+echo "  3. Run test:   npm start"
 echo "  4. Check logs: tail -f /var/log/coco/agent.log"
 echo ""

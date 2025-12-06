@@ -83,7 +83,7 @@ run_session() {
   start_epoch=$(date +%s)
   sentiment="${COCO_SENTIMENT_SUMMARY:-positive}"
 
-  log "Starting scheduled Coco session (mode=${COCO_AGENT_MODE:-unset}, sentiment=${sentiment})."
+  log "Starting scheduled Coco session."
   export SKIP_AGENT_LOCK=1
 
   # Run the session and capture exit code

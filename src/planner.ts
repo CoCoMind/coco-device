@@ -1,4 +1,4 @@
-import activityLibraryJson from "./content/activities.json";
+import activityLibraryJson from "../config/curriculum/activities.json";
 
 export type ActivityCategory =
   | "orientation"
