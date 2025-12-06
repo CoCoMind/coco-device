@@ -4,7 +4,10 @@
 
 set -euo pipefail
 
-COCO_DIR="${COCO_DIR:-/home/pi/coco-device}"
+# Detect the actual user (not root when running with sudo)
+COCO_USER="${SUDO_USER:-${USER:-pi}}"
+COCO_HOME=$(getent passwd "$COCO_USER" | cut -d: -f6 || echo "/home/${COCO_USER}")
+COCO_DIR="${COCO_DIR:-${COCO_HOME}/coco-device}"
 ENV_FILE="${COCO_DIR}/.env"
 VERSION_FILE="/etc/coco-agent-version"
 LOGROTATE_SRC="${COCO_DIR}/config/logrotate-coco"
@@ -29,6 +32,51 @@ echo "============================================"
 echo "  Coco Device Provisioning"
 echo "============================================"
 echo ""
+
+# Setup SSH deploy key for GitHub access
+setup_ssh_deploy_key() {
+    local user_home="$1"
+    local ssh_dir="${user_home}/.ssh"
+    local key_file="${ssh_dir}/coco-deploy"
+    local config_file="${ssh_dir}/config"
+
+    log_info "Setting up SSH deploy key for GitHub..."
+
+    mkdir -p "$ssh_dir"
+    chmod 700 "$ssh_dir"
+
+    # Install deploy key (read-only access to coco-hardware-scripts repo)
+    cat > "$key_file" << 'DEPLOY_KEY'
+-----BEGIN OPENSSH PRIVATE KEY-----
+b3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAAAAAABAAAAMwAAAAtzc2gtZW
+QyNTUxOQAAACCARSJ5hE35fv0lnqsvEZ3wBnZ57CFBoxGfo/DosSagtQAAAKBcAcJDXAHC
+QwAAAAtzc2gtZWQyNTUxOQAAACCARSJ5hE35fv0lnqsvEZ3wBnZ57CFBoxGfo/DosSagtQ
+AAAEDyYvtPQh5lmmCKJTXFM1AF7jeKI8798UpqITMx9g00ZoBFInmETfl+/SWeqy8RnfAG
+dnnsIUGjEZ+j8OixJqC1AAAAFmNvY28tZGV2aWNlLWRlcGxveS1rZXkBAgMEBQYH
+-----END OPENSSH PRIVATE KEY-----
+DEPLOY_KEY
+    chmod 600 "$key_file"
+
+    # Configure SSH to use deploy key for GitHub
+    if ! grep -q "Host github.com" "$config_file" 2>/dev/null; then
+        cat >> "$config_file" << 'SSH_CONFIG'
+
+# Coco device deploy key for GitHub
+Host github.com
+    IdentityFile ~/.ssh/coco-deploy
+    IdentitiesOnly yes
+    StrictHostKeyChecking accept-new
+SSH_CONFIG
+    fi
+    chmod 600 "$config_file"
+
+    # Add GitHub to known_hosts
+    if ! grep -q "github.com" "${ssh_dir}/known_hosts" 2>/dev/null; then
+        ssh-keyscan github.com >> "${ssh_dir}/known_hosts" 2>/dev/null
+    fi
+
+    log_info "SSH deploy key configured"
+}
 
 # Check for existing .env
 if [[ -f "$ENV_FILE" ]]; then
@@ -119,9 +167,13 @@ COCO_LOG_LEVEL=info
 EOF
 
 # Set proper ownership
-chown pi:pi "$ENV_FILE"
+chown "${COCO_USER}:${COCO_USER}" "$ENV_FILE"
 chmod 600 "$ENV_FILE"
 log_info ".env file created with secure permissions"
+
+# Setup SSH deploy key for this user
+setup_ssh_deploy_key "$COCO_HOME"
+chown -R "${COCO_USER}:${COCO_USER}" "${COCO_HOME}/.ssh"
 
 # Write version file
 AGENT_VERSION=$(cd "$COCO_DIR" && git describe --tags --always 2>/dev/null || echo "unknown")
@@ -138,7 +190,7 @@ fi
 
 # Create log directory
 mkdir -p /var/log/coco
-chown pi:pi /var/log/coco
+chown "${COCO_USER}:${COCO_USER}" /var/log/coco
 log_info "Log directory created"
 
 # Reload systemd and restart services
