@@ -231,7 +231,9 @@ journalctl -u coco-agent-scheduler.service -f
 │   ├── run-scheduled-session.sh
 │   ├── coco-heartbeat.sh
 │   ├── coco-command-poller.sh
-│   └── coco-update.sh
+│   ├── coco-update.sh
+│   ├── coco-health-check.sh          # Device health check
+│   └── provision-device.sh           # Initial provisioning
 └── tests/
 
 /var/log/coco/
@@ -261,6 +263,16 @@ journalctl -u coco-agent-scheduler.service -f
 | Backend POST fails | Auth or network issue | Check token and URL |
 
 ### Quick Diagnostics
+
+```bash
+# Comprehensive health check (recommended)
+npm run health
+
+# Or with verbose output
+npm run health:verbose
+```
+
+### Manual Diagnostics
 
 ```bash
 # Check service status
