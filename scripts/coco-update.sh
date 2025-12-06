@@ -26,11 +26,12 @@ die() {
 
 get_latest_tag() {
   # Get latest tag, filtering out annotated tag dereferenced entries (^{})
-  # and extracting just the tag name
+  # and extracting just the tag name. Returns empty if no tags exist.
   sudo -u "$RUN_USER" git ls-remote --tags --sort=v:refname origin 2>/dev/null \
     | grep -v '\^{}' \
     | tail -n1 \
-    | sed 's#.*/##'
+    | sed 's#.*/##' \
+    || true
 }
 
 validate_ref() {
