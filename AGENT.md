@@ -89,6 +89,7 @@ After each session, a summary is sent to the backend including:
 |--------|---------|
 | `npm run start` | Run a session |
 | `npm run start:sync` | Run a session (alias) |
+| `npm run health` | Device health check (~50 validations) |
 | `npm run test` | Run all tests |
 | `npm run typecheck` | TypeScript type checking |
 

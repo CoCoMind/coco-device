@@ -62,6 +62,17 @@ Optional:
 | `COCO_AUDIO_OUTPUT_DEVICE` | `pulse` | ALSA output device |
 | `COCO_AUDIO_INPUT_DEVICE` | `pulse` | ALSA input device |
 
+## Health Check
+
+After installation, verify everything is set up correctly:
+
+```bash
+npm run health          # Quick check (~50 validations)
+npm run health:verbose  # Detailed output
+```
+
+Checks: environment, files, dependencies, systemd, network, audio, TypeScript.
+
 ## Tests
 
 ```bash

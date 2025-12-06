@@ -121,6 +121,15 @@ COCO: {LLM-generated personalized closing referencing session highlights}
 
 ## Changelog
 
+### 2025-12-05 (v0.1.3 - OTA Reliability & Health Check)
+- Fixed coco-update.sh annotated tag handling (filter `^{}` suffix)
+- Added ref validation before destructive git operations
+- Added `die()` helper for clean error exits with logging
+- Logs previous/new commit hashes for rollback tracking
+- Service restart failures now logged individually
+- New `npm run health` command for comprehensive device diagnostics
+- Health check validates: env, files, deps, systemd, network, audio, TypeScript
+
 ### 2025-12-05 (v0.1.2 - UX Improvements)
 - Dynamic recording: 30s initial cap, extends to 60s if user still speaking
 - Fixed followUp=true always includes question (MAY → MUST)
