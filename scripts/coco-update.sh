@@ -142,7 +142,7 @@ fi
 
 log "Restarting services"
 restart_failed=0
-for svc in coco-agent.service coco-agent-scheduler.timer coco-heartbeat.timer coco-update.timer coco-command-poller.timer; do
+for svc in coco-agent-scheduler.timer coco-heartbeat.timer coco-update.timer coco-command-poller.timer; do
   if ! systemctl restart "$svc" 2>/dev/null; then
     log "WARN: Failed to restart $svc"
     restart_failed=1
