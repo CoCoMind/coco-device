@@ -111,7 +111,7 @@ if ! validate_ref "$target_ref"; then
 fi
 
 log "Fetching latest ${target_ref}"
-if ! sudo -u "$RUN_USER" git fetch --all --tags; then
+if ! sudo -u "$RUN_USER" git fetch --all --tags --force; then
   die "git fetch failed"
 fi
 
