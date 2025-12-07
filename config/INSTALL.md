@@ -3,12 +3,36 @@
 ## Prerequisites
 - Raspberry Pi OS Lite (64-bit) flashed to SD card
 - SSH access enabled
-- Network connectivity (Ethernet or Wi-Fi)
+- Initial network connectivity (Ethernet or temporary WiFi)
 
 ## Quick Install (recommended)
 ```bash
 curl -sSL https://raw.githubusercontent.com/jh2k2/coco-hardware-scripts/main/install.sh | sudo bash
 ```
+
+## WiFi Provisioning (for field deployment)
+
+The device includes **automatic WiFi provisioning** via captive portal. This allows you to deploy devices to different locations without pre-configuring WiFi:
+
+### How It Works
+1. When the device can't connect to a known WiFi network, it creates a hotspot named **CoCo-XXXX** (where XXXX is a unique identifier)
+2. Connect to this hotspot from your phone or laptop
+3. A captive portal automatically appears to select the target WiFi network
+4. Enter the WiFi password and the device will connect
+
+### Field Deployment Workflow
+1. Flash SD card with Raspberry Pi OS Lite
+2. Enable SSH (create empty `ssh` file in boot partition)
+3. Connect device via Ethernet for initial install
+4. Run quick install command above
+5. Run `sudo ./scripts/provision-device.sh`
+6. Disconnect Ethernet - device is now portable
+7. At deployment location: power on, connect to CoCo-XXXX hotspot, configure WiFi
+
+### Fallback Behavior
+- If the user's WiFi goes down or password changes, the device automatically returns to hotspot mode
+- Connect to the hotspot to reconfigure WiFi credentials
+- All stored configuration (participant ID, API keys) is preserved
 
 ## Manual Install
 ```bash

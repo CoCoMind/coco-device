@@ -24,7 +24,30 @@ log "Install directory: ${INSTALL_DIR}"
 # Install system dependencies
 log "Installing system dependencies..."
 apt-get update
-apt-get install -y curl git alsa-utils build-essential
+apt-get install -y curl git alsa-utils build-essential network-manager
+
+# Switch from dhcpcd to NetworkManager (required for Comitup WiFi provisioning)
+if systemctl is-active --quiet dhcpcd 2>/dev/null; then
+  log "Switching from dhcpcd to NetworkManager..."
+  systemctl stop dhcpcd || true
+  systemctl disable dhcpcd || true
+  systemctl enable NetworkManager
+  systemctl start NetworkManager
+fi
+
+# Install Comitup for WiFi provisioning (captive portal)
+log "Installing Comitup WiFi provisioning..."
+if ! command -v comitup &>/dev/null; then
+  # Download and install the apt-source package (sets up repo correctly)
+  COMITUP_APT_DEB="/tmp/comitup-apt-source.deb"
+  curl -fsSL -o "$COMITUP_APT_DEB" "https://davesteele.github.io/comitup/deb/davesteele-comitup-apt-source_1.3_all.deb"
+  dpkg -i "$COMITUP_APT_DEB"
+  rm -f "$COMITUP_APT_DEB"
+  apt-get update
+  apt-get install -y comitup comitup-watch
+else
+  log "Comitup already installed"
+fi
 
 # Install Node.js 20 if not present or wrong version
 if ! command -v node &>/dev/null || [[ "$(node -v 2>/dev/null | cut -d. -f1)" != "v20" ]]; then
@@ -101,16 +124,29 @@ if [[ -f "${INSTALL_DIR}/package.json" ]]; then
   log "Installed version: ${version}"
 fi
 
+# Configure Comitup with CoCo branding
+log "Configuring Comitup WiFi provisioning..."
+if [[ -f "${INSTALL_DIR}/config/comitup.conf" ]]; then
+  cp "${INSTALL_DIR}/config/comitup.conf" /etc/comitup.conf
+  log "Comitup configuration installed"
+fi
+systemctl enable comitup || true
+
 log ""
 log "============================================"
 log "Installation complete!"
 log "============================================"
 log ""
+log "WiFi Setup:"
+log "  If no WiFi is configured, the device will create a hotspot:"
+log "    SSID: CoCo-XXXX (where XXXX is a unique identifier)"
+log "  Connect to this hotspot and a captive portal will appear"
+log "  to configure the WiFi network."
+log ""
 log "Next steps:"
 log "  1. Configure environment:"
 log "     cd ${INSTALL_DIR}"
-log "     cp .env.example .env"
-log "     nano .env"
+log "     sudo ./scripts/provision-device.sh"
 log ""
 log "  2. Enable and start services:"
 log "     sudo systemctl enable --now coco-agent-scheduler.timer coco-heartbeat.timer coco-update.timer coco-command-poller.timer"
