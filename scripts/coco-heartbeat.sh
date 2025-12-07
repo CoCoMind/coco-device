@@ -86,6 +86,18 @@ collect_connectivity() {
       return
     fi
   done
+
+  # Check ethernet as fallback (report as "wifi" since backend only accepts wifi/lte/offline)
+  for iface in eth0 eth1 enp0s3; do
+    local eth_ip
+    eth_ip=$(get_ip_for_iface "$iface")
+    if [ -n "$eth_ip" ]; then
+      CONNECTIVITY="wifi"
+      NETWORK_IFACE="$iface"
+      IP_ADDRESS="$eth_ip"
+      return
+    fi
+  done
 }
 
 measure_latency() {
