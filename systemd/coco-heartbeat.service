@@ -1,5 +1,7 @@
 [Unit]
 Description=Coco device heartbeat sender
+After=network-online.target
+Wants=network-online.target
 
 [Service]
 Type=oneshot

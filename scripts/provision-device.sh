@@ -33,6 +33,42 @@ echo "  Coco Device Provisioning"
 echo "============================================"
 echo ""
 
+# Check WiFi/network connectivity status
+check_network_status() {
+    # Check if NetworkManager is available
+    if ! command -v nmcli &>/dev/null; then
+        log_warn "NetworkManager not found - WiFi provisioning unavailable"
+        return 0
+    fi
+
+    local wifi_connection
+    wifi_connection=$(nmcli -t -f NAME,TYPE c show --active 2>/dev/null | grep wifi | cut -d: -f1)
+    local eth_connection
+    eth_connection=$(nmcli -t -f NAME,TYPE c show --active 2>/dev/null | grep ethernet | cut -d: -f1)
+
+    if [[ -n "$wifi_connection" ]]; then
+        log_info "WiFi connected to: $wifi_connection"
+    elif [[ -n "$eth_connection" ]]; then
+        log_info "Ethernet connected: $eth_connection"
+    else
+        log_warn "No network connection detected"
+        echo ""
+        echo "To configure WiFi, look for a hotspot named 'CoCo-XXXX'"
+        echo "Connect to it from your phone/laptop and a captive portal"
+        echo "will appear to select your WiFi network."
+        echo ""
+        read -p "Continue provisioning anyway? [y/N] " -n 1 -r
+        echo
+        if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+            echo "Configure WiFi first, then re-run this script."
+            exit 0
+        fi
+    fi
+}
+
+# Check network status before proceeding
+check_network_status
+
 # Setup SSH deploy key for GitHub access
 setup_ssh_deploy_key() {
     local user_home="$1"
@@ -214,6 +250,20 @@ echo ""
 echo "Device ID:      $DEVICE_ID"
 echo "Participant ID: $PARTICIPANT_ID"
 echo "Version:        $AGENT_VERSION"
+
+# Show current network status
+if command -v nmcli &>/dev/null; then
+    WIFI_SSID=$(nmcli -t -f NAME,TYPE c show --active 2>/dev/null | grep wifi | cut -d: -f1)
+    if [[ -n "$WIFI_SSID" ]]; then
+        echo "WiFi Network:   $WIFI_SSID"
+    fi
+fi
+
+echo ""
+echo "WiFi Provisioning:"
+echo "  If the device loses WiFi or is moved to a new location,"
+echo "  it will automatically create a hotspot named 'CoCo-XXXX'."
+echo "  Connect to configure new WiFi credentials."
 echo ""
 echo "Next steps:"
 echo "  1. Test audio: speaker-test -D $AUDIO_OUT -c 1 -t sine -f 440 -l 1"

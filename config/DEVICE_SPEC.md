@@ -102,6 +102,33 @@ Coco is a cognitive companion that runs on Raspberry Pi devices, providing twice
 
 ---
 
+## WiFi Provisioning
+
+The device uses **Comitup** for automatic WiFi configuration via captive portal.
+
+### Behavior
+- When no known WiFi network is available, device creates hotspot `CoCo-XXXX`
+- Captive portal automatically appears when connecting to hotspot
+- User selects WiFi network and enters password
+- Device connects and remembers credentials
+- Automatically falls back to hotspot mode if WiFi connection is lost
+
+### Managing WiFi (via CLI)
+```bash
+# View WiFi status (interactive)
+comitup-cli
+
+# Force hotspot mode
+sudo systemctl restart comitup
+```
+
+### Configuration
+- Config file: `/etc/comitup.conf`
+- Hotspot SSID pattern: `CoCo-<nnn>` (random suffix)
+- No password on setup hotspot (open network)
+
+---
+
 ## Configuration
 
 ### Required Environment Variables
@@ -261,6 +288,10 @@ journalctl -u coco-agent-scheduler.service -f
 | Session ends immediately | Stop phrase hallucination | Check Whisper transcription |
 | "Unattended" status | No user response | Verify audio hardware |
 | Backend POST fails | Auth or network issue | Check token and URL |
+| No CoCo-XXXX hotspot | Comitup not running | `sudo systemctl restart comitup` |
+| Hotspot visible but no portal | DNS/routing issue | Manually navigate to 10.41.0.1 |
+| WiFi won't connect | Wrong password | Retry via captive portal |
+| Device stuck in hotspot mode | WiFi out of range | Move closer to router, retry |
 
 ### Quick Diagnostics
 
