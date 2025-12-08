@@ -1,0 +1,132 @@
+{
+  "user_external_id": "test_user",
+  "domains": [
+    {
+      "domain": "orientation",
+      "current_score": 50,
+      "baseline_score": 50,
+      "improvement": 0,
+      "trend": "stable",
+      "session_count": 0,
+      "last_activity_scores": [],
+      "last_updated": "2025-12-05T23:13:13.677Z"
+    },
+    {
+      "domain": "language",
+      "current_score": 50,
+      "baseline_score": 50,
+      "improvement": 0,
+      "trend": "stable",
+      "session_count": 0,
+      "last_activity_scores": [],
+      "last_updated": "2025-12-05T23:13:13.677Z"
+    },
+    {
+      "domain": "memory",
+      "current_score": 50,
+      "baseline_score": 50,
+      "improvement": 0,
+      "trend": "stable",
+      "session_count": 0,
+      "last_activity_scores": [],
+      "last_updated": "2025-12-05T23:13:13.677Z"
+    },
+    {
+      "domain": "attention",
+      "current_score": 15,
+      "baseline_score": 0,
+      "improvement": 15,
+      "trend": "stable",
+      "session_count": 1,
+      "last_activity_scores": [
+        0
+      ],
+      "last_updated": "2025-12-05T23:13:42.862Z"
+    },
+    {
+      "domain": "reminiscence",
+      "current_score": 50,
+      "baseline_score": 50,
+      "improvement": 0,
+      "trend": "stable",
+      "session_count": 0,
+      "last_activity_scores": [],
+      "last_updated": "2025-12-05T23:13:13.677Z"
+    },
+    {
+      "domain": "social",
+      "current_score": 50,
+      "baseline_score": 50,
+      "improvement": 0,
+      "trend": "stable",
+      "session_count": 0,
+      "last_activity_scores": [],
+      "last_updated": "2025-12-05T23:13:13.677Z"
+    },
+    {
+      "domain": "mindfulness",
+      "current_score": 15,
+      "baseline_score": 0,
+      "improvement": 15,
+      "trend": "stable",
+      "session_count": 1,
+      "last_activity_scores": [
+        0
+      ],
+      "last_updated": "2025-12-05T23:13:42.862Z"
+    },
+    {
+      "domain": "executive",
+      "current_score": 15,
+      "baseline_score": 0,
+      "improvement": 15,
+      "trend": "stable",
+      "session_count": 1,
+      "last_activity_scores": [
+        0
+      ],
+      "last_updated": "2025-12-05T23:13:42.862Z"
+    },
+    {
+      "domain": "errorless_learning",
+      "current_score": 15,
+      "baseline_score": 0,
+      "improvement": 15,
+      "trend": "stable",
+      "session_count": 1,
+      "last_activity_scores": [
+        0
+      ],
+      "last_updated": "2025-12-05T23:13:42.862Z"
+    },
+    {
+      "domain": "CR/goal support",
+      "current_score": 15,
+      "baseline_score": 0,
+      "improvement": 15,
+      "trend": "stable",
+      "session_count": 1,
+      "last_activity_scores": [
+        0
+      ],
+      "last_updated": "2025-12-05T23:13:42.862Z"
+    },
+    {
+      "domain": "music",
+      "current_score": 15,
+      "baseline_score": 0,
+      "improvement": 15,
+      "trend": "stable",
+      "session_count": 1,
+      "last_activity_scores": [
+        0
+      ],
+      "last_updated": "2025-12-05T23:13:42.862Z"
+    }
+  ],
+  "total_sessions": 1,
+  "preferred_difficulty": "easy",
+  "created_at": "2025-12-05T23:13:13.677Z",
+  "updated_at": "2025-12-05T23:13:42.862Z",
+  "version": 1
+}

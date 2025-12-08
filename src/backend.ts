@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import log from "./logger";
+import { ActivityResult, CognitiveDomain } from "./types/activity";
 
 const BACKEND_URL = process.env.COCO_BACKEND_URL || undefined;
 const INGEST_TOKEN =
@@ -14,6 +15,29 @@ const BACKEND_RETRIES = Math.max(
 );
 
 export type SessionStatus = "success" | "unattended" | "early_exit" | "error_exit";
+
+/**
+ * Activity-level result for backend ingestion
+ */
+export type ActivityResultPayload = {
+  activity_id: string;
+  cognitive_domain: CognitiveDomain;
+  score: number;
+  raw_score?: number;
+  response_time_ms?: number;
+  difficulty_used: string;
+  completed: boolean;
+  turn_count: number;
+  duration_sec: number;
+};
+
+/**
+ * Domain score summary for backend ingestion
+ */
+export type DomainScorePayload = {
+  domain: CognitiveDomain;
+  score: number;
+};
 
 export type SessionSummaryPayload = {
   session_id: string;
@@ -30,6 +54,10 @@ export type SessionSummaryPayload = {
   sentiment_summary?: string;
   sentiment_score?: number;
   notes?: string;
+  // New fields for cognitive training results
+  activity_results?: ActivityResultPayload[];
+  domain_scores?: DomainScorePayload[];
+  processing_speed_avg_ms?: number;
 };
 
 async function postJSON(
@@ -105,12 +133,31 @@ async function postJSON(
   }
 }
 
+/**
+ * Converts ActivityResult to ActivityResultPayload for backend ingestion
+ */
+export function toActivityResultPayload(result: ActivityResult): ActivityResultPayload {
+  return {
+    activity_id: result.activity_id,
+    cognitive_domain: result.cognitive_domain,
+    score: result.score,
+    raw_score: result.raw_score,
+    response_time_ms: result.response_time_ms,
+    difficulty_used: result.difficulty_used,
+    completed: result.completed,
+    turn_count: result.turn_count,
+    duration_sec: result.duration_sec,
+  };
+}
+
 export async function sendSessionSummary(payload: SessionSummaryPayload) {
   log.lifecycle("Sending session summary to backend", {
     session_id: payload.session_id,
     duration_seconds: payload.duration_seconds,
     turn_count: payload.turn_count,
     sentiment: payload.sentiment_summary,
+    activity_count: payload.activity_results?.length ?? 0,
+    domain_count: payload.domain_scores?.length ?? 0,
   });
 
   await postJSON(
