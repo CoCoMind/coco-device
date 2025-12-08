@@ -18,6 +18,14 @@ if [[ $EUID -ne 0 ]]; then
   err "This script must be run as root (use sudo)"
 fi
 
+# Warn if RUN_USER is root (likely ran from root shell instead of sudo)
+if [[ "$RUN_USER" == "root" ]]; then
+  log "WARNING: Installing as root user. This may cause permission issues."
+  log "         If this is unintended, run: sudo ./install.sh (not from a root shell)"
+  log "         Or set RUN_USER explicitly: sudo RUN_USER=pi ./install.sh"
+  sleep 3
+fi
+
 log "Installing Coco Device for user: ${RUN_USER}"
 log "Install directory: ${INSTALL_DIR}"
 

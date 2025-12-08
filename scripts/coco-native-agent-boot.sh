@@ -8,8 +8,13 @@ RUN_USER="${COCO_RUN_USER:-${SUDO_USER:-${USER}}}"
 REPO_DIR="${COCO_REPO_DIR:-/home/${RUN_USER}/coco-device}"
 LAST_SESSION_FILE="${COCO_LAST_SESSION_FILE:-/var/lib/coco/last_session_at}"
 
-mkdir -p "$(dirname "$LOG_FILE")"
-touch "$LOG_FILE"
+# Ensure log directory exists and is writable
+mkdir -p "$(dirname "$LOG_FILE")" 2>/dev/null || true
+if ! touch "$LOG_FILE" 2>/dev/null; then
+  # Fall back to user's home directory if /var/log/coco isn't writable
+  LOG_FILE="${HOME}/.coco-agent.log"
+  touch "$LOG_FILE" 2>/dev/null || LOG_FILE="/dev/null"
+fi
 chmod 644 "$LOG_FILE" 2>/dev/null || true
 exec >>"$LOG_FILE" 2>&1
 
