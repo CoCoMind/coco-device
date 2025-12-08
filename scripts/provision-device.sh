@@ -69,11 +69,12 @@ check_network_status() {
 # Check network status before proceeding
 check_network_status
 
-# Setup SSH deploy key for GitHub access
+# Setup SSH deploy key for GitHub access (per-device key generation)
 setup_ssh_deploy_key() {
     local user_home="$1"
     local ssh_dir="${user_home}/.ssh"
     local key_file="${ssh_dir}/coco-deploy"
+    local pub_key_file="${key_file}.pub"
     local config_file="${ssh_dir}/config"
 
     log_info "Setting up SSH deploy key for GitHub..."
@@ -81,17 +82,35 @@ setup_ssh_deploy_key() {
     mkdir -p "$ssh_dir"
     chmod 700 "$ssh_dir"
 
-    # Install deploy key (read-only access to coco-hardware-scripts repo)
-    cat > "$key_file" << 'DEPLOY_KEY'
------BEGIN OPENSSH PRIVATE KEY-----
-b3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAAAAAABAAAAMwAAAAtzc2gtZW
-QyNTUxOQAAACCARSJ5hE35fv0lnqsvEZ3wBnZ57CFBoxGfo/DosSagtQAAAKBcAcJDXAHC
-QwAAAAtzc2gtZWQyNTUxOQAAACCARSJ5hE35fv0lnqsvEZ3wBnZ57CFBoxGfo/DosSagtQ
-AAAEDyYvtPQh5lmmCKJTXFM1AF7jeKI8798UpqITMx9g00ZoBFInmETfl+/SWeqy8RnfAG
-dnnsIUGjEZ+j8OixJqC1AAAAFmNvY28tZGV2aWNlLWRlcGxveS1rZXkBAgMEBQYH
------END OPENSSH PRIVATE KEY-----
-DEPLOY_KEY
-    chmod 600 "$key_file"
+    # Generate new keypair if it doesn't exist
+    if [[ ! -f "$key_file" ]]; then
+        log_info "Generating new SSH deploy key for this device..."
+        ssh-keygen -t ed25519 -f "$key_file" -N "" -C "coco-device-$(hostname)-$(date +%Y%m%d)" >/dev/null 2>&1
+        chmod 600 "$key_file"
+        chmod 644 "$pub_key_file"
+
+        echo ""
+        echo "============================================"
+        echo -e "${YELLOW}  ACTION REQUIRED: Add Deploy Key to GitHub${NC}"
+        echo "============================================"
+        echo ""
+        echo "A new SSH key has been generated for this device."
+        echo "You must add this public key as a deploy key to the GitHub repo:"
+        echo ""
+        echo "  1. Go to: https://github.com/jh2k2/coco-device/settings/keys"
+        echo "  2. Click 'Add deploy key'"
+        echo "  3. Title: coco-$(hostname)"
+        echo "  4. Paste this key:"
+        echo ""
+        echo "------- PUBLIC KEY (copy everything below) -------"
+        cat "$pub_key_file"
+        echo "------- END PUBLIC KEY -------"
+        echo ""
+        read -p "Press Enter after adding the key to GitHub... " -r
+        echo ""
+    else
+        log_info "Using existing SSH deploy key"
+    fi
 
     # Configure SSH to use deploy key for GitHub
     if ! grep -q "Host github.com" "$config_file" 2>/dev/null; then
@@ -111,7 +130,14 @@ SSH_CONFIG
         ssh-keyscan github.com >> "${ssh_dir}/known_hosts" 2>/dev/null
     fi
 
-    log_info "SSH deploy key configured"
+    # Test GitHub connectivity
+    log_info "Testing GitHub SSH access..."
+    if sudo -u "$COCO_USER" ssh -T git@github.com -o BatchMode=yes -o ConnectTimeout=10 2>&1 | grep -q "successfully authenticated"; then
+        log_info "GitHub SSH access verified"
+    else
+        log_warn "Could not verify GitHub SSH access - OTA updates may fail"
+        log_warn "Make sure the deploy key was added to: https://github.com/jh2k2/coco-device/settings/keys"
+    fi
 }
 
 # Check for existing .env

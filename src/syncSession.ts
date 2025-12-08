@@ -18,6 +18,7 @@ import OpenAI, { toFile } from "openai";
 import { spawn } from "node:child_process";
 import { buildPlan, Activity } from "./planner";
 import { sendSessionSummary, createSessionIdentifiers, type SessionSummaryPayload, type SessionStatus } from "./backend";
+import { withRetry, API_TIMEOUT_MS } from "./retry";
 
 // Audio config
 const SAMPLE_RATE = 24000;
@@ -66,7 +67,7 @@ const STOP_PHRASES = [
 // Retry config for seniors
 const MAX_LISTEN_RETRIES = 2; // Retry 2 times if not heard (3 attempts total)
 
-const openai = new OpenAI();
+const openai = new OpenAI({ timeout: API_TIMEOUT_MS });
 
 interface SessionResult {
   utteranceCount: number;
@@ -159,12 +160,16 @@ Respond with JSON: {"text": "your response", "followUp": true/false}`;
   ];
 
   try {
-    const response = await openai.chat.completions.create({
-      model: "gpt-4o-mini",
-      messages,
-      max_tokens: 200,
-      temperature: 0.7,
-    });
+    const response = await withRetry(
+      () => openai.chat.completions.create({
+        model: "gpt-4o-mini",
+        messages,
+        max_tokens: 200,
+        temperature: 0.7,
+      }),
+      "LLM",
+      { logger: log }
+    );
 
     const rawReply = response.choices[0]?.message?.content?.trim() || '{"text": "Thank you for sharing that.", "followUp": false}';
 
@@ -233,12 +238,16 @@ async function textToSpeech(text: string): Promise<Buffer> {
   log(`TTS: "${text.slice(0, 60)}${text.length > 60 ? "..." : ""}"`);
   const start = Date.now();
 
-  const response = await openai.audio.speech.create({
-    model: "tts-1",
-    voice: "nova",
-    input: text,
-    response_format: "pcm",
-  });
+  const response = await withRetry(
+    () => openai.audio.speech.create({
+      model: "tts-1",
+      voice: "nova",
+      input: text,
+      response_format: "pcm",
+    }),
+    "TTS",
+    { logger: log }
+  );
 
   const arrayBuffer = await response.arrayBuffer();
   const buffer = Buffer.from(arrayBuffer);
@@ -421,11 +430,15 @@ async function transcribe(recording: RecordingResult): Promise<string> {
   const wavBuffer = createWavBuffer(audioBuffer);
   const file = await toFile(wavBuffer, "audio.wav", { type: "audio/wav" });
 
-  const response = await openai.audio.transcriptions.create({
-    model: "whisper-1",
-    file: file,
-    language: "en",
-  });
+  const response = await withRetry(
+    () => openai.audio.transcriptions.create({
+      model: "whisper-1",
+      file: file,
+      language: "en",
+    }),
+    "STT",
+    { logger: log }
+  );
 
   const text = response.text.trim();
 

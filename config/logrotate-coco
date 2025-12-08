@@ -5,7 +5,7 @@
     delaycompress
     missingok
     notifempty
-    create 0644 pi pi
+    create 0600 pi pi
     size 50M
     copytruncate
 }

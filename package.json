@@ -1,13 +1,14 @@
 {
   "name": "coco-device",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "main": "index.js",
   "scripts": {
     "start": "tsx src/syncSession.ts",
     "start:sync": "tsx src/syncSession.ts",
     "typecheck": "tsc --noEmit",
     "test": "npm run typecheck && npm run test:all",
-    "test:all": "npm run test:backend && npm run test:planner && npm run test:scripts",
+    "test:all": "npm run test:retry && npm run test:backend && npm run test:planner && npm run test:scripts",
+    "test:retry": "tsx tests/retry.test.ts",
     "test:backend": "dotenv -- tsx tests/backend.test.ts",
     "test:planner": "dotenv -- tsx tests/planner.test.ts",
     "test:scripts": "dotenv -- tsx tests/scripts.test.ts",
@@ -25,7 +26,7 @@
   "devDependencies": {
     "@types/node": "^20.16.5",
     "dotenv-cli": "^11.0.0",
-    "typescript": "^5.5.4"
+    "typescript": "^5.9.3"
   },
   "description": ""
 }
