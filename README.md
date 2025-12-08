@@ -110,6 +110,7 @@ Activity content is in `config/curriculum/activities.json`. See `config/curricul
 
 ## Documentation
 
-- [DEVICE_SPEC.md](config/DEVICE_SPEC.md) - Full device specification
-- [INSTALL.md](config/INSTALL.md) - Manual installation guide
-- [SYNC_PIPELINE.md](docs/SYNC_PIPELINE.md) - Pipeline architecture
+- [DEVICE_SPEC.md](docs/DEVICE_SPEC.md) - Full device specification
+- [INSTALL.md](docs/INSTALL.md) - Installation guide with WiFi provisioning
+- [TEST_PLAN.md](docs/TEST_PLAN.md) - Test plan and manual test cases
+- [CHANGELOG.md](docs/CHANGELOG.md) - Version history

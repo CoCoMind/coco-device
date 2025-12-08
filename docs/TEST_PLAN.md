@@ -17,6 +17,7 @@ cd ~/coco-device
 npm test
 
 # Individual test suites
+npm run test:retry     # API retry utility tests (19 tests)
 npm run test:backend   # Backend API tests (9 tests)
 npm run test:planner   # Activity planner tests (14 tests)
 npm run test:scripts   # Shell script validation (35 tests)
@@ -28,6 +29,20 @@ npm run typecheck
 ---
 
 ## Automated Test Suites
+
+### Retry Tests (`tests/retry.test.ts`) - 19 tests
+
+| Category | Tests | Description |
+|----------|-------|-------------|
+| withRetry | 12 | Timeout, retry logic, error handling |
+| isRetryable | 7 | Error classification (transient vs fatal) |
+
+**Key scenarios:**
+- Timeouts are retried
+- Network errors (ECONNRESET, ETIMEDOUT) are retried
+- 5xx server errors are retried
+- 4xx client errors fail immediately (not retried)
+- Respects retry count and delay configuration
 
 ### Backend Tests (`tests/backend.test.ts`) - 9 tests
 
@@ -169,7 +184,7 @@ npm start
 
 ### Automated Tests
 - [ ] `npm test` passes with 0 failures
-- [ ] All 58 tests pass (9 backend + 14 planner + 35 scripts)
+- [ ] All 77 tests pass (19 retry + 9 backend + 14 planner + 35 scripts)
 - [ ] TypeScript compiles without errors
 
 ### Session Flow
