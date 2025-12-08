@@ -76,7 +76,8 @@ Checks: environment, files, dependencies, systemd, network, audio, TypeScript.
 ## Tests
 
 ```bash
-npm test              # typecheck + all tests
+npm test              # typecheck + all tests (77 total)
+npm run test:retry    # retry utility tests (19 tests)
 npm run test:backend  # backend API tests (9 tests)
 npm run test:planner  # planner tests (14 tests)
 npm run test:scripts  # shell script validation (35 tests)

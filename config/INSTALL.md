@@ -62,9 +62,32 @@ The script will:
 - Prompt for participant ID, device ID, API keys
 - Auto-generate device ID if not provided
 - Write `.env` with secure permissions (600)
+- **Generate SSH deploy key** (see below)
 - Install log rotation config
 - Write version file to `/etc/coco-agent-version`
 - Restart all services
+
+### SSH Deploy Key Setup (Required for OTA)
+
+The provisioning script generates a **unique SSH key per device** for secure GitHub access. You must add this key to GitHub:
+
+1. During provisioning, a public key will be displayed:
+   ```
+   ------- PUBLIC KEY (copy everything below) -------
+   ssh-ed25519 AAAA... coco-device-raspberrypi-20251208
+   ------- END PUBLIC KEY -------
+   ```
+
+2. Go to: https://github.com/jh2k2/coco-device/settings/keys
+
+3. Click **"Add deploy key"**:
+   - **Title:** `coco-<hostname>` (e.g., `coco-raspberrypi`)
+   - **Key:** Paste the public key
+   - **Allow write access:** Leave unchecked (read-only is fine)
+
+4. Press Enter in the terminal to continue provisioning
+
+**Why per-device keys?** Each device has its own keypair for security. If one device is compromised, revoke only that key without affecting others.
 
 ### Option 2: Manual Configuration
 ```bash
@@ -101,6 +124,18 @@ The `coco-update.timer` runs daily at 02:30 (±15min jitter). Disable with:
 sudo systemctl disable --now coco-update.timer
 ```
 
+### Automatic Rollback (v0.1.6+)
+
+OTA updates include automatic rollback on failure:
+1. Pre-update commit is saved
+2. After `npm install`, a health check runs:
+   - Verifies `src/syncSession.ts` exists
+   - Verifies `package.json` is valid
+   - Verifies `node_modules` exists
+   - Runs TypeScript compilation check
+3. If health check fails → automatic rollback to previous commit
+4. Logs show: `ROLLBACK: Reverted to <commit>`
+
 ## Logs & State
 | File | Purpose |
 |------|---------|
@@ -113,20 +148,30 @@ sudo systemctl disable --now coco-update.timer
 
 ## Reliability Features
 
+### API Retry Logic (v0.1.6+)
+All OpenAI API calls (TTS, STT, LLM) have automatic retry:
+- **Timeout:** 30s (configurable via `COCO_API_TIMEOUT_MS`)
+- **Retries:** 2 attempts (configurable via `COCO_API_RETRIES`)
+- **Retry delay:** 500ms
+- **Retryable errors:** timeout, ECONNRESET, ETIMEDOUT, network errors, 5xx
+
+Backend API calls also retry:
+- **Timeout:** 10s (via `COCO_BACKEND_TIMEOUT_MS`)
+- **Retries:** 1 (via `COCO_BACKEND_RETRIES`)
+
+### OTA Rollback (v0.1.6+)
+- Updates automatically rollback if health check fails
+- Previous commit saved before update
+- Health check verifies code structure and TypeScript compilation
+
+### Log Security
+- Logs created with `0600` permissions (owner-only read)
+- Logs rotate daily (7-day retention)
+- Max 50MB per log file
+
 ### Self-Healing Services
 - Agent service auto-restarts on failure (`Restart=on-failure`, 10s delay)
 - Session failures are reported to backend (`session_start_failed` event)
-- Connection retries with exponential backoff (3 attempts)
-
-### Log Management
-- Logs rotate daily (7-day retention)
-- Max 50MB per log file
-- Transcripts are truncated to 50 chars for privacy
-
-### Network Resilience
-- Ephemeral key fetch: 3 retries with backoff
-- WebSocket connection: 3 retries with backoff
-- Backend API: configurable retries via `COCO_BACKEND_RETRIES`
 
 ## Troubleshooting
 ```bash

@@ -30,6 +30,7 @@ Coco is a cognitive companion that runs on Raspberry Pi devices, providing twice
 │  ├── src/syncSession.ts  → Main session runner                  │
 │  ├── src/planner.ts      → Activity curriculum builder          │
 │  ├── src/backend.ts      → Backend API client                   │
+│  ├── src/retry.ts        → API retry/timeout utility            │
 │  └── src/logger.ts       → Logging utility                      │
 ├─────────────────────────────────────────────────────────────────┤
 │  Content                                                        │
@@ -162,6 +163,26 @@ sudo systemctl restart comitup
 | Min speech RMS | 300 |
 | Silence duration | 2500 ms |
 
+### API Retry Configuration (v0.1.6+)
+
+All OpenAI API calls (TTS, STT, LLM) have automatic retry on transient failures:
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `COCO_API_TIMEOUT_MS` | `30000` | Timeout per API call |
+| `COCO_API_RETRIES` | `2` | Number of retry attempts |
+
+Backend API calls:
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `COCO_BACKEND_TIMEOUT_MS` | `10000` | Timeout for backend calls |
+| `COCO_BACKEND_RETRIES` | `1` | Number of retry attempts |
+
+Retryable errors: `timeout`, `ECONNRESET`, `ETIMEDOUT`, `fetch failed`, `network`, 5xx status codes.
+
+Non-retryable errors (fail immediately): 4xx status codes (auth errors, validation errors).
+
 ---
 
 ## Systemd Services
@@ -239,6 +260,46 @@ journalctl -u coco-agent-scheduler.service -f
 
 ---
 
+## OTA Updates (v0.1.6+)
+
+### Update Flow
+
+```
+1. Fetch latest tag from GitHub
+2. Save current commit for rollback
+3. git reset --hard to target ref
+4. Install scripts + systemd units
+5. npm install --omit=dev
+6. Run health check
+7. If health check fails → ROLLBACK
+8. Restart timers
+```
+
+### Health Check
+
+Before completing an update, the following checks run:
+- `src/syncSession.ts` exists
+- `package.json` is valid JSON
+- `node_modules` directory exists
+- TypeScript compiles without errors
+
+### Rollback
+
+If any check fails:
+1. `git reset --hard <previous-commit>`
+2. `npm install --omit=dev`
+3. Restore previous scripts + units
+4. Log: `ROLLBACK COMPLETE: Reverted to <commit>`
+
+### SSH Deploy Keys
+
+Each device generates its own SSH keypair during provisioning:
+- Key location: `~/.ssh/coco-deploy`
+- Public key must be added to GitHub as a deploy key
+- One key per device (revoke individually if compromised)
+
+---
+
 ## File System Layout
 
 ```
@@ -248,6 +309,7 @@ journalctl -u coco-agent-scheduler.service -f
 │   ├── syncSession.ts                # Main session runner
 │   ├── planner.ts                    # Activity selection
 │   ├── backend.ts                    # Backend API client
+│   ├── retry.ts                      # API retry/timeout utility
 │   └── logger.ts                     # Logging utility
 ├── config/
 │   └── curriculum/

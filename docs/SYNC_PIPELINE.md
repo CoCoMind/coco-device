@@ -121,6 +121,23 @@ COCO: {LLM-generated personalized closing referencing session highlights}
 
 ## Changelog
 
+### 2025-12-08 (v0.1.6 - Pilot Reliability Fixes)
+
+**Security:**
+- Removed embedded SSH private key from provision-device.sh
+- Per-device key generation with manual GitHub deploy key setup
+- Fixed log permissions (0644 → 0600) to prevent secrets exposure
+
+**Reliability:**
+- Added retry/timeout to all OpenAI API calls (TTS, STT, LLM)
+- 30s timeout + 2 retries for transient network failures (configurable)
+- Extracted withRetry utility to `src/retry.ts` with 19 unit tests
+
+**OTA Updates:**
+- Added automatic rollback on failed updates
+- Health check verifies: entry point exists, package.json valid, node_modules present, TypeScript compiles
+- Rollback restores previous commit + reinstalls deps
+
 ### 2025-12-05 (v0.1.3 - OTA Reliability & Health Check)
 - Fixed coco-update.sh annotated tag handling (filter `^{}` suffix)
 - Added ref validation before destructive git operations
