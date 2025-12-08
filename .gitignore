@@ -72,6 +72,8 @@ venv/
 *.egg-info/
 
 # -----------------------------------------------------------------------------
-# Claude Code local settings
+# Claude Code settings
 # -----------------------------------------------------------------------------
-.claude/
+.claude/*
+!.claude/settings.json
+!.claude/commands/
