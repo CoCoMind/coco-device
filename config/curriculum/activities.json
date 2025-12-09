@@ -1,196 +1,977 @@
 [
   {
-    "id": "orientation_multi_checkin",
-    "category": "orientation",
-    "title": "Layered check-in",
-    "prompt": "Open warmly, then peel back two more layers about how the day feels.",
-    "domain": "mindfulness",
-    "duration_min": 1,
-    "type": "cue",
-    "instructions": "Start with a light observation, follow with feelings, finish with a supportive reflection.",
+    "id": "orientation_welcome",
+    "version": 1,
+    "cognitive_domain": "orientation",
+    "type": "orientation",
+    "difficulty": "easy",
+    "scoring": {
+      "metric": "llm_judged",
+      "capture_timing": false
+    },
+    "title": "Welcome & Grounding",
+    "description": "Warm greeting and present-moment grounding to start the session",
+    "instructions": "Open warmly, ask about their day, and help them settle into the session.",
     "script": [
-      "I’m happy to be with you. What’s the first thing you noticed when you woke up today?",
-      "When that happened, how did it land in your body? Was it energizing, tiring, or something else?",
-      "If that feeling could whisper a tiny request for today, what would it ask for?"
+      "Hello! I'm so glad to spend some time with you today. How are you feeling right now?",
+      "That's lovely to hear. Let's take a nice deep breath together before we begin.",
+      "Wonderful. I have some fun activities planned for us today."
     ],
     "goal": "Create emotional safety and orient to the present moment.",
-    "tags": ["orientation", "rapport", "mindfulness"]
-  },
-  {
-    "id": "orientation_daily_touchstone",
-    "category": "orientation",
-    "title": "Daily touchstone",
-    "prompt": "Use a personal anchor—favorite mug, chair, or window view—to orient to time and place.",
-    "domain": "reality_orientation",
     "duration_min": 1,
-    "type": "cue",
-    "instructions": "Invite the user to describe this anchor and how it fits into their routine.",
-    "script": [
-      "Walk me through the item or view that feels most “you” right now.",
-      "What memories attach themselves to that item? Who else is tucked inside that memory?",
-      "How does that memory shape what you’d like to do with the rest of today?"
-    ],
-    "goal": "Blend sensory grounding with personal routines to strengthen orientation.",
-    "tags": ["orientation", "CST"]
+    "tags": ["orientation", "grounding", "rapport"]
   },
   {
-    "id": "language_story_seed",
-    "category": "language",
-    "title": "Story seed conversation",
-    "prompt": "Pick a personal topic (favorite room, family motto, treasured object) and guide the user to expand it into a short story.",
-    "domain": "language",
-    "duration_min": 2,
-    "type": "conversation",
-    "instructions": "Use leading questions that highlight feelings, people, and context. Reflect back key words.",
+    "id": "orientation_daily_anchor",
+    "version": 1,
+    "cognitive_domain": "orientation",
+    "type": "orientation",
+    "difficulty": "easy",
+    "scoring": {
+      "metric": "llm_judged",
+      "capture_timing": false
+    },
+    "title": "Daily Anchor",
+    "description": "Use a personal anchor to orient to time and place",
+    "instructions": "Invite the user to describe something familiar from their day.",
     "script": [
-      "Pick a topic—maybe a hallway picture, a family saying, or a favorite chair. What’s the first scene that pops up?",
-      "Staying with that scene: who is standing next to you, and what are they doing?",
-      "If I could step into that moment, what should I know to really “get” how it felt for you?"
+      "Good to see you! What's something you noticed today - maybe the weather, or something in your home?",
+      "I can picture that. What time of day is it for you right now?",
+      "Perfect. Let's get started with our activities."
+    ],
+    "goal": "Blend sensory grounding with time orientation.",
+    "duration_min": 1,
+    "tags": ["orientation", "grounding"]
+  },
+
+  {
+    "id": "word_garden_plant",
+    "version": 1,
+    "cognitive_domain": "episodic_memory",
+    "type": "word_list",
+    "difficulty": "medium",
+    "difficulty_params": {
+      "word_count": 8,
+      "delay_type": "immediate"
+    },
+    "scoring": {
+      "metric": "count",
+      "capture_timing": false,
+      "normalization": {
+        "min_expected": 2,
+        "max_expected": 8
+      }
+    },
+    "title": "Word Garden - Planting",
+    "description": "Present a word list for immediate recall, with delayed recall later",
+    "instructions": "Read the words clearly with pauses. After presenting all words, ask for immediate recall. Keep track of which words they remember for the harvest activity later.",
+    "script": [
+      "Let's play a memory game! I'm going to plant some words in your memory garden. Listen carefully, and then tell me as many as you can remember.",
+      "Here are your words: Apple... Bicycle... Sunset... Garden... Music... Elephant... Kitchen... Rainbow",
+      "Now, tell me as many of those words as you can remember. Don't worry about the order.",
+      "Wonderful! Let's see how many are still blooming later. We'll check back in a few minutes."
+    ],
+    "goal": "Encode words for immediate and delayed recall assessment.",
+    "duration_min": 2,
+    "paired_activity_id": "word_garden_harvest",
+    "tags": ["memory", "word_list", "encoding"]
+  },
+
+  {
+    "id": "animal_spotter",
+    "version": 1,
+    "cognitive_domain": "complex_attention",
+    "secondary_domains": ["processing_speed"],
+    "type": "go_no_go",
+    "difficulty": "medium",
+    "difficulty_params": {
+      "target_category": "animals",
+      "trial_count": 12,
+      "distractor_count": 6
+    },
+    "scoring": {
+      "metric": "accuracy",
+      "capture_timing": true,
+      "normalization": {
+        "min_expected": 6,
+        "max_expected": 12
+      }
+    },
+    "title": "Animal Spotter",
+    "description": "Say 'yes' quickly when you hear an animal name",
+    "instructions": "Present words one at a time with about 2 seconds between them. User should say 'yes' for animals and stay silent for non-animals. Track accuracy and response time.",
+    "script": [
+      "Let's play Animal Spotter! I'll say different words. When you hear an animal, say 'yes' as quickly as you can. If it's not an animal, just stay quiet. Ready?",
+      "Here we go: Table... Dog... Window... Cat... Mountain... Horse... Lamp... Fish... Book... Bird... Chair... Rabbit",
+      "Great job! You spotted most of the animals."
+    ],
+    "goal": "Exercise sustained attention and quick response inhibition.",
+    "duration_min": 2,
+    "tags": ["attention", "go_no_go", "animals"]
+  },
+
+  {
+    "id": "number_hunter",
+    "version": 1,
+    "cognitive_domain": "complex_attention",
+    "type": "go_no_go",
+    "difficulty": "medium",
+    "difficulty_params": {
+      "target_category": "number_7",
+      "trial_count": 15
+    },
+    "scoring": {
+      "metric": "accuracy",
+      "capture_timing": false,
+      "normalization": {
+        "min_expected": 0,
+        "max_expected": 4
+      }
+    },
+    "title": "Number Hunter",
+    "description": "Count how many times you hear the target number",
+    "instructions": "Read a sequence of numbers. User counts how many times the target number (7) appears. Check their count at the end.",
+    "script": [
+      "Let's hunt for numbers! I'll say a sequence of numbers. Count how many times you hear the number 7. Keep track in your head.",
+      "Ready? Here we go: 3... 7... 2... 5... 7... 9... 1... 7... 4... 8... 6... 7... 2... 5... 3",
+      "How many 7s did you hear?",
+      "Let me check... there were four 7s. Great counting!"
+    ],
+    "goal": "Exercise sustained attention and counting.",
+    "duration_min": 2,
+    "tags": ["attention", "counting", "vigilance"]
+  },
+
+  {
+    "id": "sound_focus",
+    "version": 1,
+    "cognitive_domain": "complex_attention",
+    "secondary_domains": ["episodic_memory"],
+    "type": "conversation",
+    "difficulty": "easy",
+    "scoring": {
+      "metric": "llm_judged",
+      "capture_timing": false
+    },
+    "title": "Sound Focus",
+    "description": "Alternate between real and imagined sounds",
+    "instructions": "Guide the user to focus on real sounds around them, then imagined sounds from memory. Help them make the shift smoothly.",
+    "script": [
+      "Let's tune into sounds. First, pause and tell me the softest sound you can hear right now.",
+      "Now close your eyes and imagine a sound from a favorite place. What do you hear in your mind?",
+      "One more: a real sound, and one imagined. How do they each make you feel?"
+    ],
+    "goal": "Practice shifting attention while engaging pleasant imagery.",
+    "duration_min": 2,
+    "tags": ["attention", "mindfulness", "imagery"]
+  },
+
+  {
+    "id": "listen_and_tap",
+    "version": 1,
+    "cognitive_domain": "complex_attention",
+    "type": "go_no_go",
+    "difficulty": "easy",
+    "difficulty_params": {
+      "target_category": "colors",
+      "trial_count": 10
+    },
+    "scoring": {
+      "metric": "accuracy",
+      "capture_timing": true,
+      "normalization": {
+        "min_expected": 2,
+        "max_expected": 5
+      }
+    },
+    "title": "Listen and Tap",
+    "description": "Tap the table when you hear a color word",
+    "instructions": "Present words one at a time. User taps the table for color words. Can't see the tap but ask them to say 'tap' when they do it.",
+    "script": [
+      "Here's a fun one! I'll say words, and when you hear a color, tap the table and say 'tap'. Ready?",
+      "Here we go: House... Blue... Tree... Red... Book... Green... Music... Yellow... Window... Orange",
+      "Excellent! You caught those colors nicely."
+    ],
+    "goal": "Practice attention and response to specific categories.",
+    "duration_min": 2,
+    "tags": ["attention", "go_no_go", "colors"]
+  },
+
+  {
+    "id": "quick_connections",
+    "version": 1,
+    "cognitive_domain": "processing_speed",
+    "secondary_domains": ["language"],
+    "type": "verbal_fluency",
+    "difficulty": "medium",
+    "difficulty_params": {
+      "trial_count": 6
+    },
+    "scoring": {
+      "metric": "latency",
+      "capture_timing": true,
+      "normalization": {
+        "min_expected": 500,
+        "max_expected": 3000
+      }
+    },
+    "title": "Quick Connections",
+    "description": "Say the first word that comes to mind as fast as possible",
+    "instructions": "Give a word and wait for immediate association. Capture response time. Give encouragement between words.",
+    "script": [
+      "Let's make quick connections! When I say a word, say the very first thing that pops into your mind. Don't think too hard - just go with your gut!",
+      "Ocean",
+      "Now try: Kitchen",
+      "Good! How about: Happy",
+      "Quick one: Music",
+      "Almost done: Garden",
+      "Last one: Family",
+      "Wonderful! Your mind made some great connections."
+    ],
+    "goal": "Measure and exercise processing speed through word associations.",
+    "duration_min": 2,
+    "tags": ["processing_speed", "associations", "fluency"]
+  },
+
+  {
+    "id": "category_snap",
+    "version": 1,
+    "cognitive_domain": "processing_speed",
+    "secondary_domains": ["complex_attention"],
+    "type": "go_no_go",
+    "difficulty": "medium",
+    "difficulty_params": {
+      "target_category": "food",
+      "trial_count": 10
+    },
+    "scoring": {
+      "metric": "composite",
+      "capture_timing": true,
+      "normalization": {
+        "min_expected": 5,
+        "max_expected": 10
+      }
+    },
+    "title": "Category Snap",
+    "description": "Quickly categorize items as food or not food",
+    "instructions": "Present items rapidly. User says 'yes' for food, 'no' otherwise. Track both accuracy and speed.",
+    "script": [
+      "Category Snap! I'll name things, and you say 'yes' if it's food, 'no' if it's not. Go as fast as you can!",
+      "Ready? Apple",
+      "Chair",
+      "Pizza",
+      "Lamp",
+      "Banana",
+      "Book",
+      "Sandwich",
+      "Window",
+      "Soup",
+      "Table",
+      "Fast thinking! You did great!"
+    ],
+    "goal": "Exercise rapid categorization and decision-making.",
+    "duration_min": 2,
+    "tags": ["processing_speed", "categorization", "food"]
+  },
+
+  {
+    "id": "rapid_fire_questions",
+    "version": 1,
+    "cognitive_domain": "processing_speed",
+    "type": "verbal_fluency",
+    "difficulty": "easy",
+    "difficulty_params": {
+      "trial_count": 8
+    },
+    "scoring": {
+      "metric": "latency",
+      "capture_timing": true,
+      "normalization": {
+        "min_expected": 500,
+        "max_expected": 2500
+      }
+    },
+    "title": "Rapid Fire Questions",
+    "description": "Quick simple questions to measure retrieval speed",
+    "instructions": "Ask simple questions with obvious answers. Measure how quickly they respond.",
+    "script": [
+      "Quick questions - answer as fast as you can! What color is grass?",
+      "What's 2 plus 2?",
+      "What do you drink in the morning?",
+      "How many days in a week?",
+      "What color is the sky?",
+      "What's your first name?",
+      "How many legs does a dog have?",
+      "What month comes after January?",
+      "Lightning fast! Great job!"
+    ],
+    "goal": "Measure basic retrieval speed with overlearned information.",
+    "duration_min": 2,
+    "tags": ["processing_speed", "retrieval", "simple"]
+  },
+
+  {
+    "id": "number_echo",
+    "version": 1,
+    "cognitive_domain": "working_memory",
+    "type": "digit_span",
+    "difficulty": "adaptive",
+    "difficulty_params": {
+      "sequence_length": 3,
+      "direction": "forward"
+    },
+    "scoring": {
+      "metric": "span",
+      "capture_timing": true,
+      "normalization": {
+        "min_expected": 3,
+        "max_expected": 9
+      }
+    },
+    "title": "Number Echo",
+    "description": "Repeat number sequences in the same order",
+    "instructions": "Start with 3 digits. If correct, add one more digit. If wrong twice at the same length, stop. Record the maximum span achieved.",
+    "script": [
+      "Let's play Number Echo! I'll say some numbers, and you repeat them back in the same order. We'll start easy and see how far we can go!",
+      "Ready? Here's your first set: 4... 7... 2",
+      "Perfect! Let's try a longer one.",
+      "Great effort! You remembered sequences of [X] numbers."
+    ],
+    "goal": "Measure and exercise forward digit span.",
+    "duration_min": 3,
+    "tags": ["working_memory", "digit_span", "forward"]
+  },
+
+  {
+    "id": "backwards_challenge",
+    "version": 1,
+    "cognitive_domain": "working_memory",
+    "secondary_domains": ["executive_function"],
+    "type": "digit_span",
+    "difficulty": "adaptive",
+    "difficulty_params": {
+      "sequence_length": 2,
+      "direction": "backward"
+    },
+    "scoring": {
+      "metric": "span",
+      "capture_timing": true,
+      "normalization": {
+        "min_expected": 2,
+        "max_expected": 8
+      }
+    },
+    "title": "Backwards Challenge",
+    "description": "Repeat number sequences in reverse order",
+    "instructions": "Start with 2 digits. User repeats them backwards. Increase on success, stop after 2 failures at same length.",
+    "script": [
+      "Now for a twist - the Backwards Challenge! I'll say numbers, and you say them in reverse order. So if I say 3-5, you say 5-3. Let's try!",
+      "Here we go: 8... 3",
+      "Excellent! Let's try more.",
+      "Wonderful work! You reversed sequences of [X] numbers."
+    ],
+    "goal": "Measure and exercise backward digit span.",
+    "duration_min": 3,
+    "tags": ["working_memory", "digit_span", "backward"]
+  },
+
+  {
+    "id": "word_match_game",
+    "version": 1,
+    "cognitive_domain": "working_memory",
+    "secondary_domains": ["complex_attention"],
+    "type": "n_back",
+    "difficulty": "medium",
+    "difficulty_params": {
+      "n_level": 2,
+      "trial_count": 12
+    },
+    "scoring": {
+      "metric": "accuracy",
+      "capture_timing": true,
+      "normalization": {
+        "min_expected": 2,
+        "max_expected": 6
+      }
+    },
+    "title": "Word Match Game",
+    "description": "Say 'match' when you hear the same word as 2 words ago",
+    "instructions": "Read words one at a time. User says 'match' when the word is the same as 2 words back. Track hits, misses, and false alarms.",
+    "script": [
+      "Word Match Game! I'll say words one at a time. Say 'match' when you hear the same word as TWO words ago. So if I say cat-dog-cat, you'd say 'match' on the second cat.",
+      "Let's practice: Dog... Tree... Dog",
+      "Now the real game: Apple... House... Apple... Bird... Tree... Bird... Cat... Apple... Cat... Sun... Moon... Sun",
+      "Great focus! That's a tricky one."
+    ],
+    "goal": "Exercise working memory through n-back matching.",
+    "duration_min": 3,
+    "tags": ["working_memory", "n_back", "matching"]
+  },
+
+  {
+    "id": "sentence_collector",
+    "version": 1,
+    "cognitive_domain": "working_memory",
+    "secondary_domains": ["language"],
+    "type": "n_back",
+    "difficulty": "medium",
+    "difficulty_params": {
+      "trial_count": 3
+    },
+    "scoring": {
+      "metric": "count",
+      "capture_timing": false,
+      "normalization": {
+        "min_expected": 1,
+        "max_expected": 3
+      }
+    },
+    "title": "Sentence Collector",
+    "description": "Remember the last word of each sentence",
+    "instructions": "Read 3 sentences. User remembers the last word of each. Then ask them to recall all the last words.",
+    "script": [
+      "Sentence Collector! I'll say a few sentences. Remember the LAST word of each one. At the end, tell me all the last words.",
+      "First: The children played in the sunny park.",
+      "Second: She baked a delicious chocolate cake.",
+      "Third: The old man fed the hungry birds.",
+      "Now, what were those three last words?",
+      "Great memory! The words were: park, cake, and birds."
+    ],
+    "goal": "Exercise working memory by tracking final words.",
+    "duration_min": 2,
+    "tags": ["working_memory", "sentences", "recall"]
+  },
+
+  {
+    "id": "word_garden_harvest",
+    "version": 1,
+    "cognitive_domain": "episodic_memory",
+    "type": "word_list",
+    "difficulty": "medium",
+    "difficulty_params": {
+      "delay_type": "delayed"
+    },
+    "scoring": {
+      "metric": "count",
+      "capture_timing": false,
+      "normalization": {
+        "min_expected": 1,
+        "max_expected": 8
+      }
+    },
+    "title": "Word Garden - Harvest",
+    "description": "Delayed recall of the word list from earlier",
+    "instructions": "Ask user to recall the words from the Word Garden activity earlier. Don't give hints unless they're really stuck. Note which words they remember.",
+    "script": [
+      "Remember those words we planted in your memory garden earlier? Let's see which ones are still blooming! Tell me as many as you can remember.",
+      "Take your time, any order is fine.",
+      "Wonderful! Your memory garden grew [X] words."
+    ],
+    "goal": "Assess delayed recall of previously encoded words.",
+    "duration_min": 2,
+    "delay_after_id": "word_garden_plant",
+    "tags": ["memory", "word_list", "delayed_recall"]
+  },
+
+  {
+    "id": "story_journey",
+    "version": 1,
+    "cognitive_domain": "episodic_memory",
+    "secondary_domains": ["language"],
+    "type": "story_recall",
+    "difficulty": "medium",
+    "difficulty_params": {
+      "detail_count": 5
+    },
+    "scoring": {
+      "metric": "count",
+      "capture_timing": false,
+      "normalization": {
+        "min_expected": 2,
+        "max_expected": 5
+      }
+    },
+    "title": "Story Journey",
+    "description": "Listen to a short story and recall key details",
+    "instructions": "Read the story clearly. Then ask specific questions about details. Score based on correct details recalled.",
+    "script": [
+      "Let me tell you a short story. Listen carefully, and I'll ask you some questions afterward.",
+      "On Tuesday morning, a man named Peter walked to the bakery on Maple Street. He bought three croissants and a cup of coffee. On his way home, he stopped to pet a friendly golden retriever named Max.",
+      "Now, let me ask you: What day was it?",
+      "What was the man's name?",
+      "What street was the bakery on?",
+      "How many croissants did he buy?",
+      "What was the dog's name?",
+      "Great listening! You remembered those details well."
+    ],
+    "goal": "Exercise narrative memory and detail recall.",
+    "duration_min": 3,
+    "tags": ["memory", "story", "recall"]
+  },
+
+  {
+    "id": "recipe_memory",
+    "version": 1,
+    "cognitive_domain": "episodic_memory",
+    "secondary_domains": ["language"],
+    "type": "guided_recall",
+    "difficulty": "easy",
+    "scoring": {
+      "metric": "llm_judged",
+      "capture_timing": false
+    },
+    "title": "Recipe Memory",
+    "description": "Recall a meaningful recipe step by step",
+    "instructions": "Guide the user through recalling a favorite recipe. Ask about senses, people, and sequence.",
+    "script": [
+      "Let's walk through a favorite recipe in your mind. What dish are we making together?",
+      "Who taught you this recipe, or who do you think of when you make it?",
+      "Walk me through the steps - what happens first, and what smells start to fill the kitchen?",
+      "What's the best part of making this dish?"
+    ],
+    "goal": "Reinforce autobiographical memory through structured recall.",
+    "duration_min": 3,
+    "tags": ["memory", "recipe", "autobiographical"]
+  },
+
+  {
+    "id": "letter_dash",
+    "version": 1,
+    "cognitive_domain": "language",
+    "secondary_domains": ["processing_speed", "executive_function"],
+    "type": "verbal_fluency",
+    "difficulty": "medium",
+    "difficulty_params": {
+      "letter": "F",
+      "time_limit_sec": 45
+    },
+    "scoring": {
+      "metric": "count",
+      "capture_timing": false,
+      "normalization": {
+        "min_expected": 5,
+        "max_expected": 20
+      }
+    },
+    "title": "Letter Dash",
+    "description": "Name as many words as possible starting with a letter",
+    "instructions": "Give them 45 seconds. Count valid words (no proper nouns, no repetitions). Encourage them throughout.",
+    "script": [
+      "Letter Dash! Name as many words as you can that start with the letter F. You have about 45 seconds. Ready? Go!",
+      "Keep going, you're doing great!",
+      "A few more seconds...",
+      "Time! Wonderful - you came up with [X] words!"
+    ],
+    "goal": "Exercise phonemic fluency and lexical retrieval.",
+    "duration_min": 2,
+    "tags": ["language", "fluency", "phonemic"]
+  },
+
+  {
+    "id": "category_sprint",
+    "version": 1,
+    "cognitive_domain": "language",
+    "secondary_domains": ["episodic_memory"],
+    "type": "verbal_fluency",
+    "difficulty": "medium",
+    "difficulty_params": {
+      "category": "animals",
+      "time_limit_sec": 45
+    },
+    "scoring": {
+      "metric": "count",
+      "capture_timing": false,
+      "normalization": {
+        "min_expected": 8,
+        "max_expected": 25
+      }
+    },
+    "title": "Category Sprint",
+    "description": "Name as many items in a category as possible",
+    "instructions": "Give them 45 seconds to name animals. Count valid unique animals. Encourage throughout.",
+    "script": [
+      "Category Sprint! Name as many animals as you can think of. You have about 45 seconds. Go!",
+      "Great ones! Keep them coming!",
+      "Almost there...",
+      "Time! You named [X] animals - that's fantastic!"
+    ],
+    "goal": "Exercise semantic fluency and category retrieval.",
+    "duration_min": 2,
+    "tags": ["language", "fluency", "semantic", "animals"]
+  },
+
+  {
+    "id": "word_explorer",
+    "version": 1,
+    "cognitive_domain": "language",
+    "type": "conversation",
+    "difficulty": "medium",
+    "scoring": {
+      "metric": "llm_judged",
+      "capture_timing": false
+    },
+    "title": "Word Explorer",
+    "description": "Discuss the meaning of a word in context",
+    "instructions": "Present a word and explore its meaning through conversation. Look for depth of understanding and personal connections.",
+    "script": [
+      "Let's explore a word together: 'resilience'. What does that word mean to you?",
+      "Can you think of a time when you or someone you know showed resilience?",
+      "That's a beautiful example. Resilience really is about bouncing back."
+    ],
+    "goal": "Exercise vocabulary depth and semantic understanding.",
+    "duration_min": 2,
+    "tags": ["language", "vocabulary", "meaning"]
+  },
+
+  {
+    "id": "story_weaver",
+    "version": 1,
+    "cognitive_domain": "language",
+    "secondary_domains": ["episodic_memory", "executive_function"],
+    "type": "conversation",
+    "difficulty": "easy",
+    "scoring": {
+      "metric": "llm_judged",
+      "capture_timing": false
+    },
+    "title": "Story Weaver",
+    "description": "Expand a personal topic into a rich narrative",
+    "instructions": "Help the user build a story from a personal memory or topic. Ask about details, feelings, and people involved.",
+    "script": [
+      "Let's weave a story together. Think of a favorite room, a treasured object, or a family tradition. What comes to mind first?",
+      "Paint me a picture - who else is there with you in this memory?",
+      "If I could step into that moment, what would I feel or notice first?"
     ],
     "goal": "Encourage expressive language rooted in personal meaning.",
-    "tags": ["language", "reminiscence", "empathy"]
+    "duration_min": 3,
+    "tags": ["language", "narrative", "personal"]
   },
+
   {
-    "id": "language_letter_moment",
-    "category": "language",
-    "title": "Letter in the air",
-    "prompt": "Invite the user to imagine a short note to a loved one or future self.",
-    "domain": "executive",
-    "duration_min": 2,
-    "type": "fluency",
-    "instructions": "Break the note into greeting, gratitude, and gentle encouragement. Offer sentence starters.",
+    "id": "category_switcher",
+    "version": 1,
+    "cognitive_domain": "executive_function",
+    "secondary_domains": ["processing_speed", "language"],
+    "type": "task_switching",
+    "difficulty": "medium",
+    "difficulty_params": {
+      "trial_count": 8
+    },
+    "scoring": {
+      "metric": "accuracy",
+      "capture_timing": true,
+      "normalization": {
+        "min_expected": 4,
+        "max_expected": 8
+      }
+    },
+    "title": "Category Switcher",
+    "description": "Alternate between naming categories and items",
+    "instructions": "Give an item, user names the category. Give a category, user names an item. Alternate and track accuracy.",
     "script": [
-      "Let’s write the opening line. Who are you writing to, and what greeting makes them smile?",
-      "Add one vivid detail or inside joke so they can hear your voice. What detail do you see?",
-      "Finish with a promise or wish. How do you want them to feel right after they read it?"
+      "Category Switcher! I'll name something, you tell me its category. Then I'll name a category, you give me an example. Back and forth!",
+      "Let's start: Apple - what category?",
+      "Good! Now give me an animal.",
+      "Great! Hammer - what category?",
+      "Now name a color.",
+      "Piano - what category?",
+      "Give me a type of weather.",
+      "Rose - what category?",
+      "Name a vehicle.",
+      "Excellent switching!"
     ],
-    "goal": "Blend language practice with emotional expression and perspective taking.",
-    "tags": ["language", "emotional_expression"]
-  },
-  {
-    "id": "memory_strength_phrase",
-    "category": "memory",
-    "title": "Strength phrase rehearsal",
-    "prompt": "Teach or rehearse a personalized phrase such as \"I am steady and supported\" using spaced retrieval.",
-    "domain": "spaced_retrieval",
+    "goal": "Exercise cognitive flexibility through task alternation.",
     "duration_min": 2,
-    "type": "recall",
-    "instructions": "Pair the phrase with a small hand motion or tapping cue. Repeat at increasing intervals.",
+    "tags": ["executive", "switching", "categories"]
+  },
+
+  {
+    "id": "countdown_challenge",
+    "version": 1,
+    "cognitive_domain": "executive_function",
+    "secondary_domains": ["working_memory"],
+    "type": "serial_arithmetic",
+    "difficulty": "medium",
+    "difficulty_params": {
+      "start_number": 50,
+      "subtract_by": 3
+    },
+    "scoring": {
+      "metric": "accuracy",
+      "capture_timing": true,
+      "normalization": {
+        "min_expected": 5,
+        "max_expected": 10
+      }
+    },
+    "title": "Countdown Challenge",
+    "description": "Count backwards by a specific number",
+    "instructions": "User counts backwards from 50 by 3s. Track errors and how far they get. Offer encouragement.",
     "script": [
-      "I have a calming phrase for us to practice together. Repeat after me: I am steady and supported.",
-      "Beautiful. Now say it again, and this time imagine someone who believes in you standing right beside you.",
-      "One more time. Take a deep breath in, let it out slowly, and say: I am steady and supported."
+      "Countdown Challenge! Start at 50 and count backwards by 3. So 50, 47, 44... Keep going as far as you can!",
+      "You're doing great, keep going!",
+      "Excellent mental math! You made it to [X]."
     ],
-    "goal": "Install a calming script the user can reuse during the day.",
-    "tags": ["memory", "mindfulness", "SR"]
-  },
-  {
-    "id": "memory_recipe_share",
-    "category": "memory",
-    "title": "Favorite recipe walkthrough",
-    "prompt": "Guide the user to recall a meaningful meal step by step.",
-    "domain": "errorless_learning",
+    "goal": "Exercise working memory and arithmetic processing.",
     "duration_min": 2,
+    "tags": ["executive", "arithmetic", "counting"]
+  },
+
+  {
+    "id": "follow_the_path",
+    "version": 1,
+    "cognitive_domain": "executive_function",
+    "secondary_domains": ["working_memory"],
+    "type": "instruction_following",
+    "difficulty": "medium",
+    "difficulty_params": {
+      "step_count": 3
+    },
+    "scoring": {
+      "metric": "accuracy",
+      "capture_timing": false,
+      "normalization": {
+        "min_expected": 1,
+        "max_expected": 3
+      }
+    },
+    "title": "Follow the Path",
+    "description": "Follow multi-step instructions in sequence",
+    "instructions": "Give 3 instructions. User performs them in order. Check if all steps are completed correctly.",
+    "script": [
+      "Follow the Path! I'll give you three things to do. Wait until I say 'go', then do them in order.",
+      "First, touch your nose. Second, clap twice. Third, say your favorite color.",
+      "Ready? Go!",
+      "Perfect sequence!"
+    ],
+    "goal": "Exercise instruction following and sequencing.",
+    "duration_min": 2,
+    "tags": ["executive", "instructions", "sequencing"]
+  },
+
+  {
+    "id": "rule_change_game",
+    "version": 1,
+    "cognitive_domain": "executive_function",
+    "secondary_domains": ["complex_attention"],
+    "type": "task_switching",
+    "difficulty": "hard",
+    "difficulty_params": {
+      "trial_count": 12
+    },
+    "scoring": {
+      "metric": "accuracy",
+      "capture_timing": true,
+      "normalization": {
+        "min_expected": 6,
+        "max_expected": 12
+      }
+    },
+    "title": "Rule Change Game",
+    "description": "Follow a rule, then switch to the opposite",
+    "instructions": "First round: say 'big' for big things, 'small' for small. Then switch the rule. Track accuracy before and after the switch.",
+    "script": [
+      "Rule Change Game! First rule: say 'big' for big things, 'small' for small things.",
+      "Elephant",
+      "Ant",
+      "Mountain",
+      "Button",
+      "Ocean",
+      "Now here's the twist - SWITCH! Say 'small' for big things, and 'big' for small things!",
+      "House",
+      "Pea",
+      "Whale",
+      "Grain of sand",
+      "Tree",
+      "Seed",
+      "Tricky when the rules flip! Great mental flexibility."
+    ],
+    "goal": "Exercise cognitive flexibility through rule reversal.",
+    "duration_min": 3,
+    "tags": ["executive", "switching", "inhibition"]
+  },
+
+  {
+    "id": "mental_postcard",
+    "version": 1,
+    "cognitive_domain": "executive_function",
+    "secondary_domains": ["language"],
     "type": "conversation",
-    "instructions": "Prompt senses (smell, texture), people involved, and variations they loved.",
+    "difficulty": "easy",
+    "scoring": {
+      "metric": "llm_judged",
+      "capture_timing": false
+    },
+    "title": "Mental Postcard",
+    "description": "Plan and compose a short message",
+    "instructions": "Guide user to plan and create a short message. Help with structure: greeting, content, closing.",
     "script": [
-      "What recipe are we cooking in our minds, and who is standing in the kitchen with you?",
-      "Walk me through the sights and smells step by step—what happens first, next, and then?",
-      "When did you make this most recently, and who were you hoping to nourish?"
+      "Let's write a mental postcard! Imagine sending a note to someone you care about. Who would you write to?",
+      "What's the first thing you'd say to make them smile?",
+      "Add one memory or inside joke - something only they would understand.",
+      "How would you sign off?"
     ],
-    "goal": "Reinforce autobiographical memory while practicing sequencing.",
-    "tags": ["memory", "life_story"]
-  },
-  {
-    "id": "attention_sound_switch",
-    "category": "attention",
-    "title": "Soundscape switch",
-    "prompt": "Alternate between naming quiet sounds around you and imagining sounds you love.",
-    "domain": "attention",
+    "goal": "Exercise planning and structured communication.",
     "duration_min": 2,
-    "type": "dual_task",
-    "instructions": "Use a gentle count (one real sound, one imagined). Encourage slow breathing.",
+    "tags": ["executive", "planning", "communication"]
+  },
+
+  {
+    "id": "voice_feelings",
+    "version": 1,
+    "cognitive_domain": "social_cognition",
+    "type": "emotion_recognition",
+    "difficulty": "medium",
+    "difficulty_params": {
+      "trial_count": 4
+    },
+    "scoring": {
+      "metric": "accuracy",
+      "capture_timing": false,
+      "normalization": {
+        "min_expected": 2,
+        "max_expected": 4
+      }
+    },
+    "title": "Voice Feelings",
+    "description": "Identify emotions from how sentences are spoken",
+    "instructions": "Say sentences with different emotions. User identifies the emotion. Use clear emotional tones.",
     "script": [
-      "Pause and name the softest sound around you right now.",
-      "Now close your eyes and pick a sound from a favorite place—who’s there with you?",
-      "Let’s do it again: one real sound, one imagined sound, and a word for how each makes you feel."
+      "Voice Feelings! Listen to HOW I say these sentences and tell me what emotion you hear.",
+      "First one: 'I can't believe you did that!' - How do I sound?",
+      "Next: 'Oh... I see... that's fine, I guess.' - What emotion is that?",
+      "How about: 'This is the best day ever!' - What am I feeling?",
+      "Last one: 'I'm not sure what to do next.' - What emotion?",
+      "Great ear for emotions!"
     ],
-    "goal": "Practice shifting attention while inviting pleasant imagery.",
-    "tags": ["attention", "mindfulness"]
-  },
-  {
-    "id": "attention_story_match",
-    "category": "attention",
-    "title": "Story-match game",
-    "prompt": "Offer two quick scenarios and ask the user to match them with feelings, colors, or objects.",
-    "domain": "attention/dual-task",
+    "goal": "Exercise emotion recognition from vocal cues.",
     "duration_min": 2,
-    "type": "game",
-    "instructions": "Keep scenarios personal (family picnic vs. cozy reading). Validate whichever associations arise.",
+    "tags": ["social", "emotion", "voice"]
+  },
+
+  {
+    "id": "mind_reader_stories",
+    "version": 1,
+    "cognitive_domain": "social_cognition",
+    "secondary_domains": ["episodic_memory"],
+    "type": "perspective_taking",
+    "difficulty": "medium",
+    "difficulty_params": {
+      "trial_count": 2
+    },
+    "scoring": {
+      "metric": "accuracy",
+      "capture_timing": false,
+      "normalization": {
+        "min_expected": 1,
+        "max_expected": 2
+      }
+    },
+    "title": "Mind Reader Stories",
+    "description": "Predict what characters think and believe",
+    "instructions": "Tell short scenarios about false beliefs. User predicts where character will look or what they think. Classic theory of mind tasks.",
     "script": [
-      "Let's play a quick matching game. Picture two moments: a family gathering around a table, and a quiet morning alone with a cup of tea. Which one feels more like you today?",
-      "Now tell me: what color belongs to that moment, and why does that color fit?",
-      "What feeling or object from that moment would you like to carry with you for the rest of today?"
+      "Let's read some minds! I'll tell you a short story, and you tell me what the person is thinking.",
+      "Sarah put her book in the drawer before leaving the room. While she was gone, her brother Tom moved it to the shelf. When Sarah comes back, where will she look for her book first?",
+      "Why would she look there?",
+      "Good thinking! Here's another: Mary thinks the candy is in the blue box. But you and I know it's really in the red box. If I ask Mary where the candy is, what will she say?",
+      "Exactly! You're great at understanding how others think."
     ],
-    "goal": "Engage cognitive flexibility with personally resonant material.",
-    "tags": ["attention", "CST_mixers"]
-  },
-  {
-    "id": "reminiscence_support_circle",
-    "category": "reminiscence",
-    "title": "Support circle spotlight",
-    "prompt": "Invite the user to share about someone who has supported them recently or in the past.",
-    "domain": "goal_support",
+    "goal": "Exercise theory of mind and perspective-taking.",
     "duration_min": 2,
+    "tags": ["social", "theory_of_mind", "perspective"]
+  },
+
+  {
+    "id": "perspective_pal",
+    "version": 1,
+    "cognitive_domain": "social_cognition",
+    "secondary_domains": ["language"],
+    "type": "perspective_taking",
+    "difficulty": "easy",
+    "scoring": {
+      "metric": "llm_judged",
+      "capture_timing": false
+    },
+    "title": "Perspective Pal",
+    "description": "Discuss emotions and reactions in social situations",
+    "instructions": "Present social scenarios and explore emotional understanding. Look for empathy and insight.",
+    "script": [
+      "Let's think about feelings together. Imagine your friend just got some disappointing news. What might they be feeling?",
+      "What could you say or do to help them feel better?",
+      "That's very thoughtful. How do you usually know when someone needs support?"
+    ],
+    "goal": "Exercise empathy and social understanding.",
+    "duration_min": 2,
+    "tags": ["social", "empathy", "emotions"]
+  },
+
+  {
+    "id": "social_detective",
+    "version": 1,
+    "cognitive_domain": "social_cognition",
+    "secondary_domains": ["episodic_memory"],
     "type": "conversation",
-    "instructions": "Ask about specific gestures, gratitude, and how the user pays that care forward.",
+    "difficulty": "easy",
+    "scoring": {
+      "metric": "llm_judged",
+      "capture_timing": false
+    },
+    "title": "Social Detective",
+    "description": "Discuss social relationships and support networks",
+    "instructions": "Guide conversation about people who support them. Look for social awareness and gratitude.",
     "script": [
-      "Name someone—past or present—who showed up for you recently.",
-      "What exact moment proved they were in your corner? Paint me the scene.",
-      "If you could send them a one-line thank-you right now, what would it say, and how would it change your day?"
+      "Let's be social detectives! Think of someone who has supported you recently. Who comes to mind?",
+      "What did they do that made you feel supported?",
+      "If you could send them a quick thank-you right now, what would you say?"
     ],
-    "goal": "Highlight social connection and agency.",
-    "tags": ["reminiscence", "empathy"]
-  },
-  {
-    "id": "reminiscence_future_note",
-    "category": "reminiscence",
-    "title": "Future self postcard",
-    "prompt": "Guide the user to imagine mailing a postcard to themselves a month from now.",
-    "domain": "CR/goal support",
+    "goal": "Exercise social awareness and relationship reflection.",
     "duration_min": 2,
-    "type": "conversation",
-    "instructions": "Blend reminiscence with forward planning; anchor advice in past successes.",
-    "script": [
-      "Imagine you’re mailing yourself a postcard a month from now. What photo is on the front, and why?",
-      "Write one sentence about what you hope you’ll be proud of by then.",
-      "End with a tiny promise or reminder. What does future-you need to hear most?"
-    ],
-    "goal": "Link memories with motivation and hope.",
-    "tags": ["reminiscence", "goal_setting"]
+    "tags": ["social", "relationships", "gratitude"]
   },
+
   {
-    "id": "closing_personal_affirmation",
-    "category": "closing",
-    "title": "Personal affirmation sendoff",
-    "prompt": "Summarize something the user shared and craft a brief affirmation around it.",
-    "domain": "mood",
-    "duration_min": 1,
+    "id": "closing_reflection",
+    "version": 1,
+    "cognitive_domain": "closing",
     "type": "closing",
-    "instructions": "Name the theme (e.g., kindness, resilience) and invite one deep breath with that word.",
-    "goal": "Ensure the final moment feels personal and affirming, explicitly referencing something they shared.",
-    "tags": ["closing", "empathy"]
+    "difficulty": "easy",
+    "scoring": {
+      "metric": "llm_judged",
+      "capture_timing": false
+    },
+    "title": "Warm Closing",
+    "description": "Personalized session wrap-up",
+    "instructions": "Reference specific things from the session. End with warmth and encouragement for the day ahead.",
+    "script": [
+      "What a wonderful session! Before we wrap up, what was your favorite part of what we did today?",
+      "I really enjoyed hearing about [reference something specific from session].",
+      "You did great work today. Take care, and I'll see you next time!"
+    ],
+    "goal": "End with personalized warmth and positive reinforcement.",
+    "duration_min": 2,
+    "tags": ["closing", "reflection", "warmth"]
   },
   {
-    "id": "closing_music_bridge",
-    "category": "closing",
-    "title": "Music bridge farewell",
-    "prompt": "Close with a suggestion to hum or play the song (or story detail) mentioned earlier, tying the session to their mood.",
-    "domain": "music",
-    "duration_min": 1,
+    "id": "closing_affirmation",
+    "version": 1,
+    "cognitive_domain": "closing",
     "type": "closing",
-    "instructions": "Mention a detail they offered (name, place, feeling) and connect it to a gentle next step.",
-    "goal": "Create continuity between the session and the user’s personal world.",
-    "tags": ["closing", "music"]
+    "difficulty": "easy",
+    "scoring": {
+      "metric": "llm_judged",
+      "capture_timing": false
+    },
+    "title": "Affirmation Sendoff",
+    "description": "End with a personalized affirmation",
+    "instructions": "Create a brief affirmation based on something they shared. Guide a deep breath together.",
+    "script": [
+      "Let's close with a moment of calm. Take a deep breath with me.",
+      "Based on what you shared today, here's a thought to carry with you: You are [personalized affirmation].",
+      "Take good care, and I'll see you soon!"
+    ],
+    "goal": "End with personalized affirmation and calm.",
+    "duration_min": 1,
+    "tags": ["closing", "affirmation", "calm"]
   }
 ]

@@ -1,0 +1,101 @@
+{
+  "user_external_id": "susanGrant",
+  "participant_id": "1",
+  "domains": [
+    {
+      "domain": "complex_attention",
+      "current_score": 24,
+      "baseline_score": 19,
+      "improvement": 5,
+      "trend": "improving",
+      "session_count": 4,
+      "last_activity_scores": [
+        0,
+        50,
+        65,
+        0
+      ],
+      "last_updated": "2025-12-06T05:16:29.743Z"
+    },
+    {
+      "domain": "processing_speed",
+      "current_score": 50,
+      "baseline_score": 50,
+      "improvement": 0,
+      "trend": "stable",
+      "session_count": 0,
+      "last_activity_scores": [],
+      "last_updated": "2025-12-08T03:04:28.462Z"
+    },
+    {
+      "domain": "executive_function",
+      "current_score": 38,
+      "baseline_score": 34,
+      "improvement": 3,
+      "trend": "declining",
+      "session_count": 6,
+      "last_activity_scores": [
+        0,
+        68,
+        73,
+        0,
+        66,
+        45
+      ],
+      "last_updated": "2025-12-06T05:16:29.743Z"
+    },
+    {
+      "domain": "working_memory",
+      "current_score": 50,
+      "baseline_score": 50,
+      "improvement": 0,
+      "trend": "stable",
+      "session_count": 0,
+      "last_activity_scores": [],
+      "last_updated": "2025-12-08T03:04:28.462Z"
+    },
+    {
+      "domain": "episodic_memory",
+      "current_score": 34,
+      "baseline_score": 26,
+      "improvement": 8,
+      "trend": "improving",
+      "session_count": 4,
+      "last_activity_scores": [
+        0,
+        0,
+        65,
+        44
+      ],
+      "last_updated": "2025-12-06T05:16:29.743Z"
+    },
+    {
+      "domain": "language",
+      "current_score": 50,
+      "baseline_score": 50,
+      "improvement": 0,
+      "trend": "stable",
+      "session_count": 0,
+      "last_activity_scores": [],
+      "last_updated": "2025-12-05T23:25:21.914Z"
+    },
+    {
+      "domain": "social_cognition",
+      "current_score": 47,
+      "baseline_score": 48,
+      "improvement": 0,
+      "trend": "stable",
+      "session_count": 2,
+      "last_activity_scores": [
+        35,
+        50
+      ],
+      "last_updated": "2025-12-06T05:16:29.743Z"
+    }
+  ],
+  "total_sessions": 3,
+  "preferred_difficulty": "easy",
+  "created_at": "2025-12-05T23:25:21.914Z",
+  "updated_at": "2025-12-08T03:04:28.462Z",
+  "version": 2
+}
