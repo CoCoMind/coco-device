@@ -42,9 +42,9 @@ check_network_status() {
     fi
 
     local wifi_connection
-    wifi_connection=$(nmcli -t -f NAME,TYPE c show --active 2>/dev/null | grep wifi | cut -d: -f1)
+    wifi_connection=$(nmcli -t -f NAME,TYPE c show --active 2>/dev/null | grep wifi | cut -d: -f1 || true)
     local eth_connection
-    eth_connection=$(nmcli -t -f NAME,TYPE c show --active 2>/dev/null | grep ethernet | cut -d: -f1)
+    eth_connection=$(nmcli -t -f NAME,TYPE c show --active 2>/dev/null | grep ethernet | cut -d: -f1 || true)
 
     if [[ -n "$wifi_connection" ]]; then
         log_info "WiFi connected to: $wifi_connection"
