@@ -118,7 +118,8 @@ sed -i "s/^Group=.*/Group=${RUN_USER}/" \
   /etc/systemd/system/coco-heartbeat.service \
   /etc/systemd/system/coco-command-poller.service || true
 sed -i "s/^Environment=COCO_RUN_USER=.*/Environment=COCO_RUN_USER=${RUN_USER}/" \
-  /etc/systemd/system/coco-update.service || true
+  /etc/systemd/system/coco-update.service \
+  /etc/systemd/system/coco-agent-scheduler.service || true
 sed -i "s|WorkingDirectory=.*|WorkingDirectory=${INSTALL_DIR}|" \
   /etc/systemd/system/coco-agent.service \
   /etc/systemd/system/coco-agent-scheduler.service || true
