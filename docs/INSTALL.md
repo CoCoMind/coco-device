@@ -78,7 +78,7 @@ The provisioning script generates a **unique SSH key per device** for secure Git
    ------- END PUBLIC KEY -------
    ```
 
-2. Go to: https://github.com/jh2k2/coco-device/settings/keys
+2. Go to: https://github.com/jh2k2/coco-hardware-scripts/settings/keys
 
 3. Click **"Add deploy key"**:
    - **Title:** `coco-<hostname>` (e.g., `coco-raspberrypi`)
