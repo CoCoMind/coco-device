@@ -23,7 +23,7 @@ Simple synchronous pipeline:
 
 ```bash
 # Bootstrap script (installs Node 20, clones repo, sets up systemd)
-curl -sSL https://raw.githubusercontent.com/jh2k2/coco-hardware-scripts/main/install.sh | sudo bash
+curl -sSL https://raw.githubusercontent.com/CoCoMind/coco-device/main/install.sh | sudo bash
 
 # Provision device (interactive)
 cd ~/coco-device
@@ -33,7 +33,7 @@ sudo ./scripts/provision-device.sh
 ## Manual Setup
 
 ```bash
-git clone https://github.com/jh2k2/coco-hardware-scripts.git coco-device
+git clone https://github.com/CoCoMind/coco-device.git coco-device
 cd coco-device
 npm install
 cp .env.example .env

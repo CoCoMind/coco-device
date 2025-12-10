@@ -7,7 +7,7 @@
 
 ## Quick Install (recommended)
 ```bash
-curl -sSL https://raw.githubusercontent.com/jh2k2/coco-hardware-scripts/main/install.sh | sudo bash
+curl -sSL https://raw.githubusercontent.com/CoCoMind/coco-device/main/install.sh | sudo bash
 ```
 
 ## WiFi Provisioning (for field deployment)
@@ -46,7 +46,7 @@ sudo apt-get install -y nodejs
 
 # Clone and install
 cd ~
-git clone https://github.com/jh2k2/coco-hardware-scripts.git coco-device
+git clone https://github.com/CoCoMind/coco-device.git coco-device
 cd coco-device
 sudo ./install.sh --local
 ```
@@ -78,7 +78,7 @@ The provisioning script generates a **unique SSH key per device** for secure Git
    ------- END PUBLIC KEY -------
    ```
 
-2. Go to: https://github.com/jh2k2/coco-hardware-scripts/settings/keys
+2. Go to: https://github.com/CoCoMind/coco-device/settings/keys
 
 3. Click **"Add deploy key"**:
    - **Title:** `coco-<hostname>` (e.g., `coco-raspberrypi`)

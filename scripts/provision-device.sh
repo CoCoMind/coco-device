@@ -97,7 +97,7 @@ setup_ssh_deploy_key() {
         echo "A new SSH key has been generated for this device."
         echo "You must add this public key as a deploy key to the GitHub repo:"
         echo ""
-        echo "  1. Go to: https://github.com/jh2k2/coco-hardware-scripts/settings/keys"
+        echo "  1. Go to: https://github.com/CoCoMind/coco-device/settings/keys"
         echo "  2. Click 'Add deploy key'"
         echo "  3. Title: coco-$(hostname)"
         echo "  4. Paste this key:"
@@ -136,7 +136,7 @@ SSH_CONFIG
         log_info "GitHub SSH access verified"
     else
         log_warn "Could not verify GitHub SSH access - OTA updates may fail"
-        log_warn "Make sure the deploy key was added to: https://github.com/jh2k2/coco-hardware-scripts/settings/keys"
+        log_warn "Make sure the deploy key was added to: https://github.com/CoCoMind/coco-device/settings/keys"
     fi
 }
 

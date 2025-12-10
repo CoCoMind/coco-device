@@ -2,9 +2,9 @@
 set -euo pipefail
 
 # Coco Device Bootstrap Installer
-# Run: curl -sSL https://raw.githubusercontent.com/jh2k2/coco-hardware-scripts/main/install.sh | sudo bash
+# Run: curl -sSL https://raw.githubusercontent.com/CoCoMind/coco-device/main/install.sh | sudo bash
 
-REPO_URL="${REPO_URL:-https://github.com/jh2k2/coco-hardware-scripts.git}"
+REPO_URL="${REPO_URL:-https://github.com/CoCoMind/coco-device.git}"
 BRANCH="${BRANCH:-main}"
 RUN_USER="${SUDO_USER:-${USER:-pi}}"
 RUN_HOME="$(getent passwd "$RUN_USER" | cut -d: -f6 || echo "/home/${RUN_USER}")"
