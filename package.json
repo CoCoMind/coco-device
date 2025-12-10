@@ -1,6 +1,6 @@
 {
   "name": "coco-device",
-  "version": "0.1.7",
+  "version": "0.1.8",
   "main": "index.js",
   "scripts": {
     "start": "tsx src/syncSession.ts",
