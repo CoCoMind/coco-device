@@ -4,6 +4,42 @@ All notable changes to the Coco Device software.
 
 ---
 
+## v0.1.9 (2025-12-10) - Session Reporting Reliability
+
+### Critical Bug Fixes
+- Fixed stop phrase during readiness check not sending session summary to backend
+- All exit paths now guaranteed to send session summary
+- `sendSessionSummary` now returns boolean for success/failure tracking
+
+### Error Reporting
+- On session crash/error, calls `sendSessionStartFailed` with error details
+- Backend receives `error_type` and `error_message` for remote diagnostics
+- No more SSH-ing into devices to check logs for errors
+
+### Exit Codes (now distinct)
+- 0 = success (had conversations)
+- 1 = error (exception/crash)
+- 2 = unattended (no one present)
+- 3 = early_exit (user said stop phrase)
+
+---
+
+## v0.1.8 (2025-12-10) - Repo Migration & Cleanup
+
+- Migrated repo from `jh2k2/coco-hardware-scripts` to `CoCoMind/coco-device`
+- Cleaned up `.env.example` - removed deprecated realtime config
+- Fixed install.sh to update `COCO_RUN_USER` in scheduler service
+- Fixed provision-device.sh grep failure causing silent exit
+
+---
+
+## v0.1.7 (2025-12-09) - Log Permission Fix
+
+- Fixed log permission errors on scheduled sessions
+- Updated systemd service configuration
+
+---
+
 ## v0.1.6 (2025-12-08) - Pilot Reliability Fixes
 
 ### Security

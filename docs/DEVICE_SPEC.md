@@ -95,11 +95,10 @@ Coco is a cognitive companion that runs on Raspberry Pi devices, providing twice
 
 | Status | Meaning | Exit Code |
 |--------|---------|-----------|
-| `success` | Completed all activities | 0 |
-| `early_exit` | User said stop phrase | 0 |
+| `success` | Completed session with conversations | 0 |
 | `unattended` | No user input detected | 2 |
-| `error_exit` | Unexpected error | 1 |
-| `audio_unavailable` | Audio device not available | 3 |
+| `early_exit` | User said stop phrase | 3 |
+| `error_exit` | Unexpected error/crash | 1 |
 
 ---
 

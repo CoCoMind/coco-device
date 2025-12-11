@@ -17,7 +17,7 @@ if (typeof globalThis.File === "undefined") {
 import OpenAI, { toFile } from "openai";
 import { spawn } from "node:child_process";
 import { buildPlan, Activity } from "./planner";
-import { sendSessionSummary, sendSessionStartFailed, createSessionIdentifiers, type SessionSummaryPayload, type SessionStatus, type SessionStartFailedPayload } from "./backend";
+import { sendSessionSummary, sendSessionStartFailed, createSessionIdentifiers, type SessionSummaryPayload, type SessionStatus } from "./backend";
 import { withRetry, API_TIMEOUT_MS } from "./retry";
 
 // Audio config
