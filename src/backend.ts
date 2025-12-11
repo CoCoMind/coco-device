@@ -38,10 +38,10 @@ async function postJSON(
   body: unknown,
   label: string,
   token?: string
-) {
+): Promise<boolean> {
   if (!baseUrl) {
     log.warn("backend", `Skipping ${label}; base URL not configured`);
-    return;
+    return false;
   }
   const payload = JSON.stringify(body);
   const headers: Record<string, string> = {
@@ -89,7 +89,7 @@ async function postJSON(
       }
 
       log.response("POST", url, res.status, durationMs);
-      return;
+      return true;
     } catch (error) {
       clearTimeout(timer);
       const durationMs = Date.now() - startTime;
@@ -97,15 +97,17 @@ async function postJSON(
 
       if (isLastAttempt) {
         log.error("backend", `POST ${label} FAILED after ${attempts} attempts (${durationMs}ms)`, error);
+        return false;
       } else {
         log.warn("backend", `POST ${label} failed (attempt ${attempt}/${attempts}, ${durationMs}ms), retrying...`, error);
         await new Promise((resolve) => setTimeout(resolve, 300));
       }
     }
   }
+  return false;
 }
 
-export async function sendSessionSummary(payload: SessionSummaryPayload) {
+export async function sendSessionSummary(payload: SessionSummaryPayload): Promise<boolean> {
   log.lifecycle("Sending session summary to backend", {
     session_id: payload.session_id,
     duration_seconds: payload.duration_seconds,
@@ -113,7 +115,7 @@ export async function sendSessionSummary(payload: SessionSummaryPayload) {
     sentiment: payload.sentiment_summary,
   });
 
-  await postJSON(
+  const success = await postJSON(
     BACKEND_URL,
     "/internal/ingest/session_summary",
     payload,
@@ -121,7 +123,12 @@ export async function sendSessionSummary(payload: SessionSummaryPayload) {
     INGEST_TOKEN
   );
 
-  log.lifecycle("Session summary send complete");
+  if (success) {
+    log.lifecycle("Session summary send complete");
+  } else {
+    log.error("backend", "Session summary send FAILED - data may be lost");
+  }
+  return success;
 }
 
 export function createSessionIdentifiers() {
@@ -141,13 +148,13 @@ export type SessionStartFailedPayload = {
   timestamp: string;
 };
 
-export async function sendSessionStartFailed(payload: SessionStartFailedPayload) {
+export async function sendSessionStartFailed(payload: SessionStartFailedPayload): Promise<boolean> {
   log.lifecycle("Sending session_start_failed to backend", {
     device_id: payload.device_id,
     error_type: payload.error_type,
   });
 
-  await postJSON(
+  const success = await postJSON(
     BACKEND_URL,
     "/internal/ingest/session_start_failed",
     payload,
@@ -155,5 +162,8 @@ export async function sendSessionStartFailed(payload: SessionStartFailedPayload)
     INGEST_TOKEN
   );
 
-  log.lifecycle("session_start_failed send complete");
+  if (success) {
+    log.lifecycle("session_start_failed send complete");
+  }
+  return success;
 }

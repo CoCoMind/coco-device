@@ -17,7 +17,7 @@ if (typeof globalThis.File === "undefined") {
 import OpenAI, { toFile } from "openai";
 import { spawn } from "node:child_process";
 import { buildPlan, Activity } from "./planner";
-import { sendSessionSummary, createSessionIdentifiers, type SessionSummaryPayload, type SessionStatus } from "./backend";
+import { sendSessionSummary, sendSessionStartFailed, createSessionIdentifiers, type SessionSummaryPayload, type SessionStatus, type SessionStartFailedPayload } from "./backend";
 import { withRetry, API_TIMEOUT_MS } from "./retry";
 
 // Audio config
@@ -543,6 +543,24 @@ async function runSession(): Promise<SessionResult> {
         log(`Stop phrase during readiness check`);
         await speak("No problem. Take care, and I'll be here when you're ready!");
         const durationSec = Math.round((Date.now() - sessionStart) / 1000);
+
+        // Send early_exit session summary to backend
+        const payload: SessionSummaryPayload = {
+          session_id: sessionId,
+          plan_id: planId,
+          user_external_id: userExternalId,
+          participant_id: participantId,
+          device_id: deviceId,
+          started_at: new Date(sessionStart).toISOString(),
+          ended_at: new Date().toISOString(),
+          duration_seconds: durationSec,
+          turn_count: 0,
+          status: "early_exit",
+          sentiment_summary: "neutral",
+          sentiment_score: 0.5,
+        };
+        await sendSessionSummary(payload);
+
         return { utteranceCount: 0, durationSec, transcripts: [], stoppedEarly: true };
       }
       // Any response means they're present
@@ -735,7 +753,16 @@ async function runSession(): Promise<SessionResult> {
   };
 }
 
+// Exit codes:
+// 0 = success (had conversations)
+// 1 = error (exception/crash)
+// 2 = unattended (no one present)
+// 3 = early_exit (user said stop phrase)
+
 async function main() {
+  const deviceId = process.env.COCO_DEVICE_ID ?? process.env.HOSTNAME ?? "unknown-device";
+  const participantId = process.env.COCO_PARTICIPANT_ID;
+
   try {
     const result = await runSession();
 
@@ -744,12 +771,33 @@ async function main() {
 
     // Exit code based on result
     if (result.utteranceCount === 0) {
-      process.exit(2); // Unattended
+      if (result.stoppedEarly) {
+        process.exit(3); // Early exit - user said stop phrase
+      }
+      process.exit(2); // Unattended - no one present
     }
-    process.exit(0);
+    process.exit(0); // Success
   } catch (err) {
+    const errorMessage = err instanceof Error ? err.message : String(err);
+    const errorType = err instanceof Error ? err.constructor.name : "UnknownError";
+
     console.error("Session error:", err);
-    process.exit(1);
+    log(`FATAL: Session crashed - ${errorType}: ${errorMessage}`);
+
+    // Report error to backend
+    try {
+      await sendSessionStartFailed({
+        device_id: deviceId,
+        participant_id: participantId,
+        error_type: errorType,
+        error_message: errorMessage,
+        timestamp: new Date().toISOString(),
+      });
+    } catch (reportErr) {
+      console.error("Failed to report error to backend:", reportErr);
+    }
+
+    process.exit(1); // Error
   }
 }
 

@@ -97,26 +97,31 @@ run_session() {
   duration=$((end_epoch - start_epoch))
 
   # Determine status based on exit code AND duration
-  # Exit codes: 0=success, 1=failed, 2=unattended (no user input)
-  if [[ $exit_code -eq 2 ]]; then
+  # Exit codes: 0=success, 1=error, 2=unattended, 3=early_exit
+  if [[ $exit_code -eq 0 ]]; then
+    if [[ $duration -lt $MIN_SESSION_SECONDS ]]; then
+      status="crashed"
+      log "Session finished too quickly (${duration}s < ${MIN_SESSION_SECONDS}s minimum) - likely crashed"
+    else
+      status="success"
+    fi
+  elif [[ $exit_code -eq 2 ]]; then
     status="unattended"
     log "Session completed but no user input detected (exit code 2)"
-  elif [[ $exit_code -ne 0 ]]; then
-    status="failed"
-    log "Session exited with code ${exit_code}"
-  elif [[ $duration -lt $MIN_SESSION_SECONDS ]]; then
-    status="crashed"
-    log "Session finished too quickly (${duration}s < ${MIN_SESSION_SECONDS}s minimum) - likely crashed"
+  elif [[ $exit_code -eq 3 ]]; then
+    status="early_exit"
+    log "Session ended early by user request (exit code 3)"
   else
-    status="success"
+    status="failed"
+    log "Session exited with error code ${exit_code}"
   fi
 
   log "Session finished status=${status} start=${start_ts} end=${end_ts} duration_seconds=${duration} sentiment_summary=${sentiment}"
   mkdir -p "$(dirname "$LAST_SESSION_FILE")"
   printf '%s\n' "$end_ts" > "$LAST_SESSION_FILE"
 
-  # Return non-zero if session failed or crashed (unattended is not a failure)
-  [[ "$status" == "success" || "$status" == "unattended" ]]
+  # Return non-zero if session failed or crashed (unattended/early_exit are not failures)
+  [[ "$status" == "success" || "$status" == "unattended" || "$status" == "early_exit" ]]
 }
 
 main() {
