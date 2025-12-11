@@ -541,10 +541,9 @@ async function runSession(): Promise<SessionResult> {
       // Check if they want to stop
       if (checkStopPhrase(response)) {
         log(`Stop phrase during readiness check`);
-        await speak("No problem. Take care, and I'll be here when you're ready!");
         const durationSec = Math.round((Date.now() - sessionStart) / 1000);
 
-        // Send early_exit session summary to backend
+        // Send early_exit session summary to backend FIRST (before closing speech)
         const payload: SessionSummaryPayload = {
           session_id: sessionId,
           plan_id: planId,
@@ -560,6 +559,13 @@ async function runSession(): Promise<SessionResult> {
           sentiment_score: 0.5,
         };
         await sendSessionSummary(payload);
+
+        // Closing speech (try/catch - summary already sent)
+        try {
+          await speak("No problem. Take care, and I'll be here when you're ready!");
+        } catch (err) {
+          log(`Closing speech failed (session data saved): ${err}`);
+        }
 
         return { utteranceCount: 0, durationSec, transcripts: [], stoppedEarly: true };
       }
@@ -586,10 +592,9 @@ async function runSession(): Promise<SessionResult> {
   // If still no response after all attempts, end as unattended
   if (!isReady) {
     log(`No response after ${MAX_READINESS_ATTEMPTS} readiness attempts - ending session`);
-    await speak("I'll be here when you're ready. Take care!");
     const durationSec = Math.round((Date.now() - sessionStart) / 1000);
 
-    // Send unattended session summary to backend
+    // Send unattended session summary to backend FIRST (before closing speech)
     const payload: SessionSummaryPayload = {
       session_id: sessionId,
       plan_id: planId,
@@ -605,6 +610,13 @@ async function runSession(): Promise<SessionResult> {
       sentiment_score: 0.5,
     };
     await sendSessionSummary(payload);
+
+    // Closing speech (try/catch - summary already sent)
+    try {
+      await speak("I'll be here when you're ready. Take care!");
+    } catch (err) {
+      log(`Closing speech failed (session data saved): ${err}`);
+    }
 
     return { utteranceCount: 0, durationSec, transcripts: [], stoppedEarly: false };
   }
@@ -696,18 +708,8 @@ async function runSession(): Promise<SessionResult> {
     if (stoppedEarly) break;
   }
 
-  // Personalized closing
-  if (!stoppedEarly && transcripts.length > 0) {
-    // Generate personalized closing based on session
-    const closingActivity = plan[plan.length - 1];
-    const closingResponse = await generateResponse("", closingActivity, 0, true);
-    await speak(closingResponse.text);
-  } else if (stoppedEarly) {
-    await speak("It was lovely chatting with you. Take care!");
-  } else {
-    await speak("Thank you for spending this time with me. Take care, and I'll see you next time!");
-  }
-
+  // Calculate duration and status BEFORE closing speech
+  // This ensures we can send session summary even if closing fails
   const durationSec = Math.round((Date.now() - sessionStart) / 1000);
   const endedAt = new Date().toISOString();
 
@@ -727,7 +729,8 @@ async function runSession(): Promise<SessionResult> {
   log(`Status: ${status}`);
   log("========================================\n");
 
-  // Send session summary to backend
+  // Send session summary to backend BEFORE closing speech
+  // Critical: ensures data is saved even if closing speech fails
   const payload: SessionSummaryPayload = {
     session_id: sessionId,
     plan_id: planId,
@@ -744,6 +747,23 @@ async function runSession(): Promise<SessionResult> {
   };
 
   await sendSessionSummary(payload);
+
+  // Personalized closing (wrapped in try/catch - summary already sent)
+  try {
+    if (!stoppedEarly && transcripts.length > 0) {
+      // Generate personalized closing based on session
+      const closingActivity = plan[plan.length - 1];
+      const closingResponse = await generateResponse("", closingActivity, 0, true);
+      await speak(closingResponse.text);
+    } else if (stoppedEarly) {
+      await speak("It was lovely chatting with you. Take care!");
+    } else {
+      await speak("Thank you for spending this time with me. Take care, and I'll see you next time!");
+    }
+  } catch (closingErr) {
+    // Log but don't throw - session summary already sent
+    log(`Closing speech failed (session data saved): ${closingErr}`);
+  }
 
   return {
     utteranceCount: transcripts.length,
