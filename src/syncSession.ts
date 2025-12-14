@@ -249,7 +249,13 @@ async function textToSpeech(text: string): Promise<Buffer> {
     { logger: log }
   );
 
-  const arrayBuffer = await response.arrayBuffer();
+  let arrayBuffer: ArrayBuffer;
+  try {
+    arrayBuffer = await response.arrayBuffer();
+  } catch (err) {
+    throw new Error(`TTS arrayBuffer failed: ${err instanceof Error ? err.message : err}`);
+  }
+
   const buffer = Buffer.from(arrayBuffer);
   log(`TTS: ${buffer.length} bytes in ${Date.now() - start}ms`);
   return buffer;
@@ -270,18 +276,34 @@ async function playAudio(audioBuffer: Buffer): Promise<void> {
       "-r", String(SAMPLE_RATE), "-q", "-D", OUTPUT_DEVICE, "-",
     ], { stdio: ["pipe", "ignore", "inherit"] });
 
-    aplay.on("error", reject);
+    // Use safeReject to prevent double-rejection (e.g., both stdin error and exit)
+    let rejected = false;
+    const safeReject = (err: Error) => {
+      if (!rejected) {
+        rejected = true;
+        reject(err);
+      }
+    };
+
+    aplay.on("error", safeReject);
+    aplay.stdin.on("error", safeReject); // Catches EPIPE when audio device unavailable
+
     aplay.on("exit", (code) => {
+      if (rejected) return; // Already rejected via error handler
       if (code === 0) {
         log(`Play: Done in ${Date.now() - start}ms`);
         resolve();
       } else {
-        reject(new Error(`aplay exited with code ${code}`));
+        safeReject(new Error(`aplay exited with code ${code}`));
       }
     });
 
-    aplay.stdin.write(audioBuffer);
-    aplay.stdin.end();
+    try {
+      aplay.stdin.write(audioBuffer);
+      aplay.stdin.end();
+    } catch (err) {
+      safeReject(err instanceof Error ? err : new Error(String(err)));
+    }
   });
 }
 
@@ -350,13 +372,22 @@ async function recordAudio(): Promise<RecordingResult> {
       arecord.kill("SIGTERM");
     }, MAX_RECORD_SECONDS * 1000);
 
-    arecord.on("error", (err) => {
-      clearInterval(checkTimer);
-      clearTimeout(absoluteMaxTimer);
-      reject(err);
-    });
+    // Use safeReject to prevent double-rejection (e.g., both stdout error and exit)
+    let rejected = false;
+    const safeReject = (err: Error) => {
+      if (!rejected) {
+        rejected = true;
+        clearInterval(checkTimer);
+        clearTimeout(absoluteMaxTimer);
+        reject(err);
+      }
+    };
+
+    arecord.on("error", safeReject);
+    arecord.stdout.on("error", safeReject); // Catches device disconnect during recording
 
     arecord.on("exit", () => {
+      if (rejected) return; // Already rejected via error handler
       clearInterval(checkTimer);
       clearTimeout(absoluteMaxTimer);
       const fullBuffer = Buffer.concat(chunks);
@@ -428,7 +459,13 @@ async function transcribe(recording: RecordingResult): Promise<string> {
   const start = Date.now();
 
   const wavBuffer = createWavBuffer(audioBuffer);
-  const file = await toFile(wavBuffer, "audio.wav", { type: "audio/wav" });
+
+  let file;
+  try {
+    file = await toFile(wavBuffer, "audio.wav", { type: "audio/wav" });
+  } catch (err) {
+    throw new Error(`WAV file creation failed: ${err instanceof Error ? err.message : err}`);
+  }
 
   const response = await withRetry(
     () => openai.audio.transcriptions.create({
@@ -782,6 +819,7 @@ async function runSession(): Promise<SessionResult> {
 async function main() {
   const deviceId = process.env.COCO_DEVICE_ID ?? process.env.HOSTNAME ?? "unknown-device";
   const participantId = process.env.COCO_PARTICIPANT_ID;
+  const userExternalId = process.env.COCO_USER_EXTERNAL_ID ?? participantId;
 
   try {
     const result = await runSession();
@@ -804,11 +842,12 @@ async function main() {
     console.error("Session error:", err);
     log(`FATAL: Session crashed - ${errorType}: ${errorMessage}`);
 
-    // Report error to backend
+    // Report error to backend via session_summary with error_exit status
     try {
       await sendSessionStartFailed({
         device_id: deviceId,
         participant_id: participantId,
+        user_external_id: userExternalId,
         error_type: errorType,
         error_message: errorMessage,
         timestamp: new Date().toISOString(),

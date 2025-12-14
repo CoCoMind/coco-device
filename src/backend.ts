@@ -143,27 +143,51 @@ export function createSessionIdentifiers() {
 export type SessionStartFailedPayload = {
   device_id: string;
   participant_id?: string;
+  user_external_id?: string;
   error_type: string;
   error_message: string;
   timestamp: string;
 };
 
+/**
+ * Reports a session crash/error using the existing session_summary endpoint.
+ * Creates a minimal session with status="error_exit" and error details in notes.
+ */
 export async function sendSessionStartFailed(payload: SessionStartFailedPayload): Promise<boolean> {
-  log.lifecycle("Sending session_start_failed to backend", {
+  log.lifecycle("Sending error session to backend", {
     device_id: payload.device_id,
     error_type: payload.error_type,
   });
 
+  // Generate IDs for this error session
+  const { sessionId, planId } = createSessionIdentifiers();
+
+  // Use existing session_summary endpoint with error_exit status
+  const summaryPayload: SessionSummaryPayload = {
+    session_id: sessionId,
+    plan_id: planId,
+    device_id: payload.device_id,
+    participant_id: payload.participant_id,
+    user_external_id: payload.user_external_id ?? payload.participant_id,
+    started_at: payload.timestamp,
+    ended_at: payload.timestamp,
+    duration_seconds: 0,
+    turn_count: 0,
+    status: "error_exit",
+    sentiment_score: 0,
+    notes: `${payload.error_type}: ${payload.error_message}`,
+  };
+
   const success = await postJSON(
     BACKEND_URL,
-    "/internal/ingest/session_start_failed",
-    payload,
-    "session_start_failed",
+    "/internal/ingest/session_summary",
+    summaryPayload,
+    "error session",
     INGEST_TOKEN
   );
 
   if (success) {
-    log.lifecycle("session_start_failed send complete");
+    log.lifecycle("Error session send complete");
   }
   return success;
 }

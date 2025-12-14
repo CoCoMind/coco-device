@@ -4,6 +4,30 @@ All notable changes to the Coco Device software.
 
 ---
 
+## v0.1.10 (2025-12-13) - Audio Error Handling
+
+### Fixed
+- **EPIPE crash when audio device unavailable** - Sessions now report to backend instead of crashing silently
+- **Device disconnect during recording** - Properly caught and reported to backend
+- Added `safeReject` pattern in `playAudio()` and `recordAudio()` to prevent double-rejection
+
+### Added
+- `docs/ERROR_HANDLING.md` - Error handling architecture documentation
+- `docs/HEARTBEAT_TROUBLESHOOTING.md` - Heartbeat timer troubleshooting guide
+- `tests/errorHandling.test.ts` - Error handling test suite (6 tests)
+
+### Changed
+- Better error messages for TTS arrayBuffer and STT toFile failures
+- All audio errors now bubble to main() catch block and report to backend via `sendSessionStartFailed()`
+
+### Investigated (Not Fixed - Needs Device Logs)
+- Heartbeat timer "gave up" issue on separate device
+  - Analysis: StartLimitBurst doesn't apply to timer-triggered oneshot services
+  - Root cause likely external (corrupted .env, disk full, DNS stuck after WiFi outage)
+  - See `docs/HEARTBEAT_TROUBLESHOOTING.md` for diagnostic commands
+
+---
+
 ## v0.1.9 (2025-12-10) - Session Reporting Reliability
 
 ### Critical Bug Fixes
