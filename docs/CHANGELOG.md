@@ -10,6 +10,7 @@ All notable changes to the Coco Device software.
 - **EPIPE crash when audio device unavailable** - Sessions now report to backend instead of crashing silently
 - **Device disconnect during recording** - Properly caught and reported to backend
 - Added `safeReject` pattern in `playAudio()` and `recordAudio()` to prevent double-rejection
+- **OTA version file sync** - `/etc/coco-agent-version` now syncs even when "already at latest commit"
 
 ### Added
 - `docs/ERROR_HANDLING.md` - Error handling architecture documentation

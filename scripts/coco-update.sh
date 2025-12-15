@@ -186,7 +186,19 @@ fi
 NEW_COMMIT=$(git rev-parse HEAD 2>/dev/null || echo "unknown")
 log "Updated to commit: ${NEW_COMMIT}"
 
-# Check if we actually updated
+# Sync version file (always, even if already at latest commit)
+if command -v node >/dev/null 2>&1 && [[ -f "${INSTALL_DIR}/package.json" ]]; then
+  version=$(cd "${INSTALL_DIR}" && node -p "require('./package.json').version" 2>/dev/null || true)
+  if [[ -n "${version:-}" ]]; then
+    current_version=$(cat /etc/coco-agent-version 2>/dev/null || echo "")
+    if [[ "${current_version}" != "${version}" ]]; then
+      echo -n "$version" >/etc/coco-agent-version
+      log "Synced /etc/coco-agent-version to ${version}"
+    fi
+  fi
+fi
+
+# Check if we actually updated (code change)
 if [[ "${PREV_COMMIT}" == "${NEW_COMMIT}" ]]; then
   log "Already at latest version, no update needed"
   rm -f "${ROLLBACK_FILE}"
@@ -213,15 +225,6 @@ if ! health_check; then
     die "Update failed (health check), rolled back to ${PREV_COMMIT}"
   else
     die "Update failed and rollback failed - manual intervention required"
-  fi
-fi
-
-# Update version file
-if command -v node >/dev/null 2>&1 && [[ -f "${INSTALL_DIR}/package.json" ]]; then
-  version=$(cd "${INSTALL_DIR}" && node -p "require('./package.json').version" 2>/dev/null || true)
-  if [[ -n "${version:-}" ]]; then
-    echo -n "$version" >/etc/coco-agent-version
-    log "Updated /etc/coco-agent-version to ${version}"
   fi
 fi
 
