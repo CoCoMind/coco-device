@@ -15,7 +15,7 @@ if (typeof globalThis.File === "undefined") {
 }
 
 import OpenAI, { toFile } from "openai";
-import { spawn } from "node:child_process";
+import { spawn, execSync } from "node:child_process";
 import { buildPlan, Activity } from "./planner";
 import { sendSessionSummary, sendSessionStartFailed, createSessionIdentifiers, type SessionSummaryPayload, type SessionStatus } from "./backend";
 import { withRetry, API_TIMEOUT_MS } from "./retry";
@@ -27,6 +27,7 @@ const SAMPLE_FORMAT = "S16_LE";
 const OUTPUT_DEVICE = process.env.COCO_AUDIO_OUTPUT_DEVICE ?? "pulse";
 const INPUT_DEVICE = process.env.COCO_AUDIO_INPUT_DEVICE ?? "pulse";
 const AUDIO_DISABLED = process.env.COCO_AUDIO_DISABLE === "1";
+const MIN_VOLUME_PERCENT = parseInt(process.env.COCO_MIN_VOLUME ?? "50", 10);
 
 // Recording config
 const INITIAL_RECORD_SECONDS = 30; // Initial recording cap
@@ -519,6 +520,27 @@ function getActivityPrompt(activity: Activity): string {
   return activity.prompt ?? `Let's do a ${activity.category} activity.`;
 }
 
+/**
+ * Ensure the audio output volume is at least MIN_VOLUME_PERCENT.
+ * Extracts card name from OUTPUT_DEVICE (e.g., "plughw:CARD=USB,DEV=0" → "USB")
+ */
+function ensureMinimumVolume(): void {
+  if (AUDIO_DISABLED) return;
+
+  // Extract card name from device string (e.g., "plughw:CARD=USB,DEV=0" → "USB")
+  const cardMatch = OUTPUT_DEVICE.match(/CARD=([^,]+)/);
+  const card = cardMatch ? cardMatch[1] : "3"; // Fallback to card 3
+
+  try {
+    // Set PCM volume to minimum percent (amixer uses percentage)
+    execSync(`amixer -c ${card} sset PCM ${MIN_VOLUME_PERCENT}%`, { stdio: "pipe" });
+    log(`Volume set to ${MIN_VOLUME_PERCENT}% on card ${card}`);
+  } catch (err) {
+    // Non-fatal: log but continue
+    log(`Warning: Could not set volume on card ${card}: ${err}`);
+  }
+}
+
 async function speak(text: string): Promise<void> {
   const audio = await textToSpeech(text);
   await playAudio(audio);
@@ -547,6 +569,9 @@ async function runSession(): Promise<SessionResult> {
   log("  COCO SESSION START (Sync Pipeline)");
   log(`  Session: ${sessionId.slice(0, 8)}...`);
   log("========================================\n");
+
+  // Ensure audio volume is at minimum threshold
+  ensureMinimumVolume();
 
   // Clear conversation history for new session
   conversationHistory.length = 0;
