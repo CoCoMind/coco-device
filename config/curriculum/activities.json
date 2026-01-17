@@ -1,196 +1,652 @@
 [
   {
-    "id": "orientation_multi_checkin",
+    "id": "orientation_first_thing",
     "category": "orientation",
-    "title": "Layered check-in",
-    "prompt": "Open warmly, then peel back two more layers about how the day feels.",
-    "domain": "mindfulness",
-    "duration_min": 1,
-    "type": "cue",
-    "instructions": "Start with a light observation, follow with feelings, finish with a supportive reflection.",
+    "title": "First thing today",
+    "goal": "Ground user in their day",
+    "instructions": "Ask about their morning. Accept any answer warmly. Draw out more detail.",
     "script": [
-      "I’m happy to be with you. What’s the first thing you noticed when you woke up today?",
-      "When that happened, how did it land in your body? Was it energizing, tiring, or something else?",
-      "If that feeling could whisper a tiny request for today, what would it ask for?"
+      "What's the first thing you did when you got up today?",
+      "Ask how that specific action made them feel",
+      "Connect it to their routine - is this typical or different?"
     ],
-    "goal": "Create emotional safety and orient to the present moment.",
-    "tags": ["orientation", "rapport", "mindfulness"]
+    "duration_min": 1
   },
   {
-    "id": "orientation_daily_touchstone",
+    "id": "orientation_weather_feel",
     "category": "orientation",
-    "title": "Daily touchstone",
-    "prompt": "Use a personal anchor—favorite mug, chair, or window view—to orient to time and place.",
-    "domain": "reality_orientation",
-    "duration_min": 1,
-    "type": "cue",
-    "instructions": "Invite the user to describe this anchor and how it fits into their routine.",
+    "title": "Weather check",
+    "goal": "Connect to present moment through environment",
+    "instructions": "Ask about weather and how it affects them. Keep it conversational.",
     "script": [
-      "Walk me through the item or view that feels most “you” right now.",
-      "What memories attach themselves to that item? Who else is tucked inside that memory?",
-      "How does that memory shape what you’d like to do with the rest of today?"
+      "What's the weather like where you are today?",
+      "Ask how this specific weather affects their mood or plans",
+      "Explore a memory or preference related to the weather they mentioned"
     ],
-    "goal": "Blend sensory grounding with personal routines to strengthen orientation.",
-    "tags": ["orientation", "CST"]
+    "duration_min": 1
   },
   {
-    "id": "language_story_seed",
+    "id": "orientation_comfort_spot",
+    "category": "orientation",
+    "title": "Comfort spot",
+    "goal": "Anchor to familiar environment",
+    "instructions": "Ask about where they're sitting. Help them appreciate their space.",
+    "script": [
+      "Are you in your usual spot today, or somewhere different?",
+      "Ask what they specifically like about that spot",
+      "Explore what makes it comfortable or meaningful to them"
+    ],
+    "duration_min": 1
+  },
+  {
+    "id": "orientation_time_of_day",
+    "category": "orientation",
+    "title": "Time of day",
+    "goal": "Anchor to temporal awareness",
+    "instructions": "Ask about their sense of the day. Accept approximate answers.",
+    "script": [
+      "Is it morning, afternoon, or evening where you are?",
+      "Ask how this time of day typically feels for them",
+      "Explore what they enjoy doing at this time"
+    ],
+    "duration_min": 1
+  },
+  {
+    "id": "orientation_window_view",
+    "category": "orientation",
+    "title": "Window view",
+    "goal": "Ground through visual awareness",
+    "instructions": "Ask what they see. Draw out sensory details.",
+    "script": [
+      "If you look out a window or around the room, what do you notice?",
+      "Ask about the specific thing they mentioned - color, shape, or feeling it gives",
+      "Connect what they see to a memory or association"
+    ],
+    "duration_min": 1
+  },
+  {
+    "id": "orientation_plans_today",
+    "category": "orientation",
+    "title": "Plans today",
+    "goal": "Connect to day's structure",
+    "instructions": "Ask about plans. Help them look forward to something.",
+    "script": [
+      "Do you have any plans for today, or is it a relaxed day?",
+      "Ask what part of their plan (or relaxation) they're most looking forward to",
+      "Explore who might be involved or what makes it meaningful"
+    ],
+    "duration_min": 1
+  },
+  {
+    "id": "orientation_sleep_night",
+    "category": "orientation",
+    "title": "Sleep check",
+    "goal": "Connect to recent experience",
+    "instructions": "Ask about sleep. Be supportive whatever they share.",
+    "script": [
+      "How did you sleep last night?",
+      "Ask about dreams or what helped/hindered their sleep",
+      "Explore their sleep routine or what helps them rest"
+    ],
+    "duration_min": 1
+  },
+  {
+    "id": "orientation_something_different",
+    "category": "orientation",
+    "title": "Something different",
+    "goal": "Notice change in routine",
+    "instructions": "Ask about anything unusual. Help them reflect on their day.",
+    "script": [
+      "Is there anything different about today compared to yesterday?",
+      "Ask how that difference makes them feel",
+      "Explore whether they prefer routine or variety"
+    ],
+    "duration_min": 1
+  },
+  {
+    "id": "language_describe_favorite",
     "category": "language",
-    "title": "Story seed conversation",
-    "prompt": "Pick a personal topic (favorite room, family motto, treasured object) and guide the user to expand it into a short story.",
-    "domain": "language",
-    "duration_min": 2,
-    "type": "conversation",
-    "instructions": "Use leading questions that highlight feelings, people, and context. Reflect back key words.",
+    "title": "Favorite thing",
+    "goal": "Practice descriptive language",
+    "instructions": "Ask them to describe something they like. Encourage detail.",
     "script": [
-      "Pick a topic—maybe a hallway picture, a family saying, or a favorite chair. What’s the first scene that pops up?",
-      "Staying with that scene: who is standing next to you, and what are they doing?",
-      "If I could step into that moment, what should I know to really “get” how it felt for you?"
+      "What's something in your home that you really like? Can you describe it to me?",
+      "Ask about a specific detail they mentioned - why that matters to them",
+      "Explore where it came from or how long they've had it"
     ],
-    "goal": "Encourage expressive language rooted in personal meaning.",
-    "tags": ["language", "reminiscence", "empathy"]
+    "duration_min": 2
   },
   {
-    "id": "language_letter_moment",
+    "id": "language_finish_sentence",
     "category": "language",
-    "title": "Letter in the air",
-    "prompt": "Invite the user to imagine a short note to a loved one or future self.",
-    "domain": "executive",
-    "duration_min": 2,
-    "type": "fluency",
-    "instructions": "Break the note into greeting, gratitude, and gentle encouragement. Offer sentence starters.",
+    "title": "Finish the thought",
+    "goal": "Gentle word retrieval",
+    "instructions": "Offer a sentence starter. Explore their answer.",
     "script": [
-      "Let’s write the opening line. Who are you writing to, and what greeting makes them smile?",
-      "Add one vivid detail or inside joke so they can hear your voice. What detail do you see?",
-      "Finish with a promise or wish. How do you want them to feel right after they read it?"
+      "Let me give you a sentence to finish: 'The best part of my week is...'",
+      "Ask why that specific thing brings them joy",
+      "Explore if it's something they look forward to regularly"
     ],
-    "goal": "Blend language practice with emotional expression and perspective taking.",
-    "tags": ["language", "emotional_expression"]
+    "duration_min": 2
   },
   {
-    "id": "memory_strength_phrase",
+    "id": "language_would_you_rather",
+    "category": "language",
+    "title": "Would you rather",
+    "goal": "Express preference with choice",
+    "instructions": "Offer two options. Explore their reasoning.",
+    "script": [
+      "Quick question: would you rather have coffee with an old friend, or take a quiet walk alone?",
+      "Ask what specifically appeals to them about their choice",
+      "Explore a recent time they got to do something like that"
+    ],
+    "duration_min": 2
+  },
+  {
+    "id": "language_word_association",
+    "category": "language",
+    "title": "Word association",
+    "goal": "Light verbal fluency",
+    "instructions": "Say a word, ask what comes to mind. Explore the connection.",
+    "script": [
+      "I'll say a word, and you tell me the first thing that comes to mind. Ready? The word is 'home.'",
+      "Ask why that specific thing came to mind",
+      "Explore the memory or feeling connected to their association"
+    ],
+    "duration_min": 2
+  },
+  {
+    "id": "language_tell_about_photo",
+    "category": "language",
+    "title": "A photo you love",
+    "goal": "Narrative expression",
+    "instructions": "Ask about a photo or picture. Draw out the story.",
+    "script": [
+      "Is there a photo or picture that means a lot to you? What's in it?",
+      "Ask about a specific person or detail they mentioned",
+      "Explore the feeling or memory that photo captures"
+    ],
+    "duration_min": 2
+  },
+  {
+    "id": "language_morning_or_night",
+    "category": "language",
+    "title": "Morning or night person",
+    "goal": "Express identity through preference",
+    "instructions": "Ask about preference. Explore why.",
+    "script": [
+      "Are you more of a morning person or a night person?",
+      "Ask what they specifically enjoy about that time",
+      "Explore if this has changed over their life"
+    ],
+    "duration_min": 2
+  },
+  {
+    "id": "language_favorite_season",
+    "category": "language",
+    "title": "Favorite season",
+    "goal": "Express preference with elaboration",
+    "instructions": "Ask about seasons. Explore memories connected to it.",
+    "script": [
+      "What's your favorite season of the year?",
+      "Ask what they specifically love about that season",
+      "Explore a favorite memory from that season"
+    ],
+    "duration_min": 2
+  },
+  {
+    "id": "language_give_advice",
+    "category": "language",
+    "title": "Advice you'd give",
+    "goal": "Share wisdom",
+    "instructions": "Ask for advice. Explore the story behind it.",
+    "script": [
+      "If someone asked you for one piece of advice about life, what would you tell them?",
+      "Ask where they learned that lesson",
+      "Explore a time when that advice helped them"
+    ],
+    "duration_min": 2
+  },
+  {
+    "id": "memory_breakfast",
     "category": "memory",
-    "title": "Strength phrase rehearsal",
-    "prompt": "Teach or rehearse a personalized phrase such as \"I am steady and supported\" using spaced retrieval.",
-    "domain": "spaced_retrieval",
-    "duration_min": 2,
-    "type": "recall",
-    "instructions": "Pair the phrase with a small hand motion or tapping cue. Repeat at increasing intervals.",
+    "title": "Breakfast recall",
+    "goal": "Easy recent memory success",
+    "instructions": "Ask about food today. Explore preferences.",
     "script": [
-      "I have a calming phrase for us to practice together. Repeat after me: I am steady and supported.",
-      "Beautiful. Now say it again, and this time imagine someone who believes in you standing right beside you.",
-      "One more time. Take a deep breath in, let it out slowly, and say: I am steady and supported."
+      "What did you have to eat this morning?",
+      "Ask if that's a usual choice or something different",
+      "Explore their favorite breakfast or who taught them to make it"
     ],
-    "goal": "Install a calming script the user can reuse during the day.",
-    "tags": ["memory", "mindfulness", "SR"]
+    "duration_min": 2
   },
   {
-    "id": "memory_recipe_share",
+    "id": "memory_favorite_song",
     "category": "memory",
-    "title": "Favorite recipe walkthrough",
-    "prompt": "Guide the user to recall a meaningful meal step by step.",
-    "domain": "errorless_learning",
-    "duration_min": 2,
-    "type": "conversation",
-    "instructions": "Prompt senses (smell, texture), people involved, and variations they loved.",
+    "title": "A song you love",
+    "goal": "Access positive autobiographical memory",
+    "instructions": "Ask about a song. Explore when they first heard it.",
     "script": [
-      "What recipe are we cooking in our minds, and who is standing in the kitchen with you?",
-      "Walk me through the sights and smells step by step—what happens first, next, and then?",
-      "When did you make this most recently, and who were you hoping to nourish?"
+      "Is there a song that always makes you feel good when you hear it?",
+      "Ask when they first heard that song or what it reminds them of",
+      "Explore the person, place, or time connected to that song"
     ],
-    "goal": "Reinforce autobiographical memory while practicing sequencing.",
-    "tags": ["memory", "life_story"]
+    "duration_min": 2
   },
   {
-    "id": "attention_sound_switch",
+    "id": "memory_smell_memory",
+    "category": "memory",
+    "title": "Smell memory",
+    "goal": "Access memory through senses",
+    "instructions": "Ask about a smell that triggers memory. Explore the scene.",
+    "script": [
+      "Is there a smell that takes you back to a certain time or place?",
+      "Ask about the specific place or time that smell brings back",
+      "Explore who was there or what was happening"
+    ],
+    "duration_min": 2
+  },
+  {
+    "id": "memory_childhood_game",
+    "category": "memory",
+    "title": "Childhood game",
+    "goal": "Access positive childhood memory",
+    "instructions": "Ask about games or play. Explore the people involved.",
+    "script": [
+      "What's a game you used to play when you were young?",
+      "Ask who they played it with",
+      "Explore where they played or a specific time they remember"
+    ],
+    "duration_min": 2
+  },
+  {
+    "id": "memory_favorite_meal",
+    "category": "memory",
+    "title": "Favorite meal",
+    "goal": "Access comfort memory through food",
+    "instructions": "Ask about a favorite meal. Explore the story.",
+    "script": [
+      "What's a meal that always makes you feel good?",
+      "Ask who used to make it or where they had it",
+      "Explore what makes that meal special or comforting"
+    ],
+    "duration_min": 2
+  },
+  {
+    "id": "memory_recent_phone",
+    "category": "memory",
+    "title": "Recent conversation",
+    "goal": "Recent memory recall",
+    "instructions": "Ask about recent communication. Explore the relationship.",
+    "script": [
+      "Have you talked to anyone on the phone or had a visitor lately?",
+      "Ask what they talked about with that person",
+      "Explore how it felt to connect with them"
+    ],
+    "duration_min": 2
+  },
+  {
+    "id": "memory_place_you_loved",
+    "category": "memory",
+    "title": "A place you loved",
+    "goal": "Access positive place memory",
+    "instructions": "Ask about a place. Explore sensory details.",
+    "script": [
+      "Is there a place you've been that you really loved?",
+      "Ask what they remember seeing, hearing, or feeling there",
+      "Explore who they were with or what they did there"
+    ],
+    "duration_min": 2
+  },
+  {
+    "id": "memory_teacher_mentor",
+    "category": "memory",
+    "title": "A teacher or mentor",
+    "goal": "Access influential person memory",
+    "instructions": "Ask about someone who taught them. Explore the impact.",
+    "script": [
+      "Was there a teacher or mentor who made a difference in your life?",
+      "Ask what specifically they taught or showed them",
+      "Explore how that person's influence shaped them"
+    ],
+    "duration_min": 2
+  },
+  {
+    "id": "memory_holiday_memory",
+    "category": "memory",
+    "title": "Holiday memory",
+    "goal": "Access celebratory memory",
+    "instructions": "Ask about a holiday. Explore traditions.",
+    "script": [
+      "Is there a holiday that brings back good memories for you?",
+      "Ask about a specific tradition or moment from that holiday",
+      "Explore who was usually there and what made it special"
+    ],
+    "duration_min": 2
+  },
+  {
+    "id": "memory_first_job",
+    "category": "memory",
+    "title": "First job",
+    "goal": "Access early adulthood memory",
+    "instructions": "Ask about work. Explore what they learned.",
+    "script": [
+      "What was one of your first jobs or responsibilities?",
+      "Ask what they learned from that experience",
+      "Explore a person who helped them or a moment they remember"
+    ],
+    "duration_min": 2
+  },
+  {
+    "id": "attention_sounds_now",
     "category": "attention",
-    "title": "Soundscape switch",
-    "prompt": "Alternate between naming quiet sounds around you and imagining sounds you love.",
-    "domain": "attention",
-    "duration_min": 2,
-    "type": "dual_task",
-    "instructions": "Use a gentle count (one real sound, one imagined). Encourage slow breathing.",
+    "title": "Sounds around you",
+    "goal": "Present-moment awareness",
+    "instructions": "Ask about sounds. Explore what they notice.",
     "script": [
-      "Pause and name the softest sound around you right now.",
-      "Now close your eyes and pick a sound from a favorite place—who’s there with you?",
-      "Let’s do it again: one real sound, one imagined sound, and a word for how each makes you feel."
+      "Pause for a moment. What sounds do you hear around you right now?",
+      "Ask about the specific sound they mentioned - what it might be",
+      "Explore if any sound is comforting or familiar to them"
     ],
-    "goal": "Practice shifting attention while inviting pleasant imagery.",
-    "tags": ["attention", "mindfulness"]
+    "duration_min": 2
   },
   {
-    "id": "attention_story_match",
+    "id": "attention_name_three",
     "category": "attention",
-    "title": "Story-match game",
-    "prompt": "Offer two quick scenarios and ask the user to match them with feelings, colors, or objects.",
-    "domain": "attention/dual-task",
-    "duration_min": 2,
-    "type": "game",
-    "instructions": "Keep scenarios personal (family picnic vs. cozy reading). Validate whichever associations arise.",
+    "title": "Name three",
+    "goal": "Light cognitive engagement",
+    "instructions": "Ask for 3 items. Accept any number. Celebrate effort.",
     "script": [
-      "Let's play a quick matching game. Picture two moments: a family gathering around a table, and a quiet morning alone with a cup of tea. Which one feels more like you today?",
-      "Now tell me: what color belongs to that moment, and why does that color fit?",
-      "What feeling or object from that moment would you like to carry with you for the rest of today?"
+      "Can you name three things that are blue?",
+      "Ask which of those they like best and why",
+      "Explore a memory or association with one of their answers"
     ],
-    "goal": "Engage cognitive flexibility with personally resonant material.",
-    "tags": ["attention", "CST_mixers"]
+    "duration_min": 2
   },
   {
-    "id": "reminiscence_support_circle",
+    "id": "attention_count_backward",
+    "category": "attention",
+    "title": "Counting down",
+    "goal": "Simple focus exercise",
+    "instructions": "Ask to count backward. Make it playful.",
+    "script": [
+      "Let's do a quick focus exercise. Can you count backward from 10 to 1?",
+      "Ask how that felt - easy, challenging, fun?",
+      "Explore if they use counting or focus tricks in daily life"
+    ],
+    "duration_min": 2
+  },
+  {
+    "id": "attention_whats_nearby",
+    "category": "attention",
+    "title": "What's nearby",
+    "goal": "Visual attention",
+    "instructions": "Ask them to notice objects. Explore what they see.",
+    "script": [
+      "Without moving, what's one object you can see within arm's reach?",
+      "Ask about the specific object - color, texture, or meaning",
+      "Explore how they got it or how long they've had it"
+    ],
+    "duration_min": 2
+  },
+  {
+    "id": "attention_animals_list",
+    "category": "attention",
+    "title": "Animals that...",
+    "goal": "Category fluency",
+    "instructions": "Ask for animals. Explore favorites.",
+    "script": [
+      "Can you name a few animals that live in water?",
+      "Ask which of those animals they find most interesting and why",
+      "Explore if they've ever seen one in real life"
+    ],
+    "duration_min": 2
+  },
+  {
+    "id": "attention_deep_breath",
+    "category": "attention",
+    "title": "Deep breath",
+    "goal": "Mindful attention",
+    "instructions": "Guide a breath. Check in on how it felt.",
+    "script": [
+      "Let's take a deep breath together. Breathe in slowly... and out.",
+      "Ask how that felt in their body",
+      "Explore if they have ways to relax or find calm"
+    ],
+    "duration_min": 2
+  },
+  {
+    "id": "attention_rhyming_words",
+    "category": "attention",
+    "title": "Rhyming words",
+    "goal": "Phonological attention",
+    "instructions": "Ask for rhymes. Make it playful.",
+    "script": [
+      "Can you think of a word that rhymes with 'day'?",
+      "Celebrate their word and ask for another rhyme",
+      "Explore if they ever made up rhymes, songs, or poems"
+    ],
+    "duration_min": 2
+  },
+  {
+    "id": "attention_opposite_game",
+    "category": "attention",
+    "title": "Opposite game",
+    "goal": "Cognitive flexibility",
+    "instructions": "Ask for opposites. Keep it fun.",
+    "script": [
+      "Let's play a quick game. What's the opposite of 'hot'?",
+      "Celebrate and give another opposite to find",
+      "Ask one more opposite - make it playful"
+    ],
+    "duration_min": 2
+  },
+  {
+    "id": "reminiscence_someone_kind",
     "category": "reminiscence",
-    "title": "Support circle spotlight",
-    "prompt": "Invite the user to share about someone who has supported them recently or in the past.",
-    "domain": "goal_support",
-    "duration_min": 2,
-    "type": "conversation",
-    "instructions": "Ask about specific gestures, gratitude, and how the user pays that care forward.",
+    "title": "Someone kind",
+    "goal": "Access positive social memory",
+    "instructions": "Ask about a kind person. Explore what they did.",
     "script": [
-      "Name someone—past or present—who showed up for you recently.",
-      "What exact moment proved they were in your corner? Paint me the scene.",
-      "If you could send them a one-line thank-you right now, what would it say, and how would it change your day?"
+      "Is there someone who was especially kind to you at some point in your life?",
+      "Ask what specifically that person did that stayed with them",
+      "Explore how that kindness affected them or shaped who they are"
     ],
-    "goal": "Highlight social connection and agency.",
-    "tags": ["reminiscence", "empathy"]
+    "duration_min": 2
   },
   {
-    "id": "reminiscence_future_note",
+    "id": "reminiscence_proud_moment",
     "category": "reminiscence",
-    "title": "Future self postcard",
-    "prompt": "Guide the user to imagine mailing a postcard to themselves a month from now.",
-    "domain": "CR/goal support",
-    "duration_min": 2,
-    "type": "conversation",
-    "instructions": "Blend reminiscence with forward planning; anchor advice in past successes.",
+    "title": "Something you're proud of",
+    "goal": "Access competence-affirming memory",
+    "instructions": "Ask about accomplishment. Celebrate their effort.",
     "script": [
-      "Imagine you’re mailing yourself a postcard a month from now. What photo is on the front, and why?",
-      "Write one sentence about what you hope you’ll be proud of by then.",
-      "End with a tiny promise or reminder. What does future-you need to hear most?"
+      "What's something you've done in your life that you're proud of?",
+      "Ask what it took to accomplish that - the effort or challenges",
+      "Explore how they felt when they achieved it"
     ],
-    "goal": "Link memories with motivation and hope.",
-    "tags": ["reminiscence", "goal_setting"]
+    "duration_min": 2
   },
   {
-    "id": "closing_personal_affirmation",
-    "category": "closing",
-    "title": "Personal affirmation sendoff",
-    "prompt": "Summarize something the user shared and craft a brief affirmation around it.",
-    "domain": "mood",
-    "duration_min": 1,
-    "type": "closing",
-    "instructions": "Name the theme (e.g., kindness, resilience) and invite one deep breath with that word.",
-    "goal": "Ensure the final moment feels personal and affirming, explicitly referencing something they shared.",
-    "tags": ["closing", "empathy"]
+    "id": "reminiscence_family_tradition",
+    "category": "reminiscence",
+    "title": "Family tradition",
+    "goal": "Connect to belonging and continuity",
+    "instructions": "Ask about traditions. Explore the people involved.",
+    "script": [
+      "Did your family have any traditions or rituals you remember?",
+      "Ask what made that specific tradition special to them",
+      "Explore who started it or kept it going"
+    ],
+    "duration_min": 2
   },
   {
-    "id": "closing_music_bridge",
+    "id": "reminiscence_lesson_learned",
+    "category": "reminiscence",
+    "title": "Lesson learned",
+    "goal": "Access wisdom from experience",
+    "instructions": "Ask about a lesson. Explore the story.",
+    "script": [
+      "What's something life has taught you that you wish you'd known earlier?",
+      "Ask how they learned that lesson - what happened",
+      "Explore if they've been able to pass it on to someone"
+    ],
+    "duration_min": 2
+  },
+  {
+    "id": "reminiscence_favorite_age",
+    "category": "reminiscence",
+    "title": "Favorite age",
+    "goal": "Reflect on life stages",
+    "instructions": "Ask about a favorite time. Explore what made it good.",
+    "script": [
+      "If you could go back to any age, which would you choose?",
+      "Ask what specifically was good about that time in their life",
+      "Explore what they would want to bring from that age to today"
+    ],
+    "duration_min": 2
+  },
+  {
+    "id": "reminiscence_best_friend",
+    "category": "reminiscence",
+    "title": "A best friend",
+    "goal": "Access friendship memory",
+    "instructions": "Ask about a friend. Explore shared experiences.",
+    "script": [
+      "Who was a good friend to you over the years?",
+      "Ask what they used to do together with that friend",
+      "Explore what made their friendship work"
+    ],
+    "duration_min": 2
+  },
+  {
+    "id": "reminiscence_something_brave",
+    "category": "reminiscence",
+    "title": "Something brave",
+    "goal": "Access courage memory",
+    "instructions": "Ask about bravery. Explore what helped.",
+    "script": [
+      "Was there a time when you did something that took courage?",
+      "Ask what the hardest part of that situation was",
+      "Explore what helped them get through it"
+    ],
+    "duration_min": 2
+  },
+  {
+    "id": "reminiscence_person_think_of",
+    "category": "reminiscence",
+    "title": "Someone you think of",
+    "goal": "Surface social connection",
+    "instructions": "Ask about someone on their mind. Explore the relationship.",
+    "script": [
+      "Is there someone you've been thinking about lately?",
+      "Ask what comes to mind when they think of that person",
+      "Explore what they would want to say to them"
+    ],
+    "duration_min": 2
+  },
+  {
+    "id": "closing_one_word",
     "category": "closing",
-    "title": "Music bridge farewell",
-    "prompt": "Close with a suggestion to hum or play the song (or story detail) mentioned earlier, tying the session to their mood.",
-    "domain": "music",
-    "duration_min": 1,
-    "type": "closing",
-    "instructions": "Mention a detail they offered (name, place, feeling) and connect it to a gentle next step.",
-    "goal": "Create continuity between the session and the user’s personal world.",
-    "tags": ["closing", "music"]
+    "title": "One word",
+    "goal": "Simple reflection before goodbye",
+    "instructions": "Ask for one word. Acknowledge and close warmly.",
+    "script": [
+      "If you had to pick one word to describe how you feel right now, what would it be?",
+      "Reflect their word back and ask what made them choose it",
+      "Warmly close the session, referencing something they shared"
+    ],
+    "duration_min": 1
+  },
+  {
+    "id": "closing_carry_with_you",
+    "category": "closing",
+    "title": "Carry a thought",
+    "goal": "Send user off with positive anchor",
+    "instructions": "Reference something they shared. End with warmth.",
+    "script": [
+      "Before we go, I want you to know: you showed up today, and that matters.",
+      "Ask what one thing from the conversation they might carry with them",
+      "Close warmly, referencing their answer"
+    ],
+    "duration_min": 1
+  },
+  {
+    "id": "closing_looking_forward",
+    "category": "closing",
+    "title": "Until next time",
+    "goal": "Create anticipation for next session",
+    "instructions": "End with warmth and a gentle hook.",
+    "script": [
+      "I really enjoyed talking with you today.",
+      "Ask if there's anything they'd like to talk about next time",
+      "Close warmly with anticipation for next session"
+    ],
+    "duration_min": 1
+  },
+  {
+    "id": "closing_best_part",
+    "category": "closing",
+    "title": "Best part of today",
+    "goal": "End on positive note",
+    "instructions": "Ask about something good. Celebrate it.",
+    "script": [
+      "What's been the best part of your day so far?",
+      "Ask what made that moment stand out for them",
+      "Close warmly, wishing them more moments like that"
+    ],
+    "duration_min": 1
+  },
+  {
+    "id": "closing_grateful_today",
+    "category": "closing",
+    "title": "Grateful for today",
+    "goal": "Close with gratitude",
+    "instructions": "Ask about gratitude. Accept any answer.",
+    "script": [
+      "Is there anything you feel grateful for today?",
+      "Ask what specifically they appreciate about that thing",
+      "Close warmly, thanking them for sharing"
+    ],
+    "duration_min": 1
+  },
+  {
+    "id": "closing_hope_for_tomorrow",
+    "category": "closing",
+    "title": "Hope for tomorrow",
+    "goal": "End with forward look",
+    "instructions": "Ask about tomorrow. Support their hope.",
+    "script": [
+      "Is there anything you're looking forward to tomorrow?",
+      "Ask what would make tomorrow a good day for them",
+      "Close warmly with hope for their tomorrow"
+    ],
+    "duration_min": 1
+  },
+  {
+    "id": "closing_kind_to_yourself",
+    "category": "closing",
+    "title": "Be kind to yourself",
+    "goal": "End with self-compassion reminder",
+    "instructions": "Offer gentle closing with reflection.",
+    "script": [
+      "Before we finish, remember to be kind to yourself today.",
+      "Ask what one small way they might do that",
+      "Close warmly, affirming they're doing just fine"
+    ],
+    "duration_min": 1
+  },
+  {
+    "id": "closing_enjoyed_your_company",
+    "category": "closing",
+    "title": "Enjoyed your company",
+    "goal": "Express appreciation",
+    "instructions": "Thank them sincerely. End warmly.",
+    "script": [
+      "I really enjoyed your company today.",
+      "Ask what their favorite part of the conversation was",
+      "Close warmly, referencing what they shared"
+    ],
+    "duration_min": 1
   }
 ]
