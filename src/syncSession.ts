@@ -1,21 +1,16 @@
 /**
- * Synchronous Session Runner
+ * Speculative Streaming Session Runner
  *
- * Full 6-activity session using the synchronous TTS + STT pipeline.
- * No Realtime API. No events. Just blocking calls.
+ * Full 6-activity session using Deepgram streaming STT with speculative LLM/TTS.
+ * Reduces turn latency from 6-40s to ~2-3s by overlapping operations.
  *
  * Usage:
  *   npx dotenv -- npx tsx src/syncSession.ts
  */
 
-// Polyfill File for Node 18 (required by OpenAI SDK)
-import { File as NodeFile } from "node:buffer";
-if (typeof globalThis.File === "undefined") {
-  (globalThis as any).File = NodeFile;
-}
-
-import OpenAI, { toFile } from "openai";
-import { spawn } from "node:child_process";
+import OpenAI from "openai";
+import { createClient, LiveTranscriptionEvents } from "@deepgram/sdk";
+import { spawn, ChildProcess } from "node:child_process";
 import { buildPlan, Activity } from "./planner";
 import { sendSessionSummary, sendSessionStartFailed, createSessionIdentifiers, type SessionSummaryPayload, type SessionStatus } from "./backend";
 import { withRetry, API_TIMEOUT_MS } from "./retry";
@@ -38,26 +33,6 @@ const SILENCE_DURATION_MS = 2500;
 // Minimum RMS for audio to be considered speech (filters out pure silence)
 const MIN_SPEECH_RMS = 300;
 
-// Known Whisper hallucination phrases (case-insensitive)
-// These appear when Whisper is given silent or near-silent audio
-const HALLUCINATION_PHRASES = [
-  "thanks for watching",
-  "thank you for watching",
-  "subscribe",
-  "like and subscribe",
-  "silence",
-  "sous-titres",
-  "subtitles",
-  "amara.org",
-  "electric unicorn",
-  "please subscribe",
-  "see you next time",
-  "bye bye",
-  "the end",
-  "music",
-  "applause",
-];
-
 // Stop phrases (intentional exit only - not casual thanks)
 const STOP_PHRASES = [
   "stop session", "end session", "goodbye", "bye",
@@ -67,7 +42,18 @@ const STOP_PHRASES = [
 // Retry config for seniors
 const MAX_LISTEN_RETRIES = 2; // Retry 2 times if not heard (3 attempts total)
 
+// Streaming STT config
+const UTTERANCE_END_MS = 2000; // 2s silence = user done speaking
+
 const openai = new OpenAI({ timeout: API_TIMEOUT_MS });
+const deepgram = createClient(process.env.DEEPGRAM_API_KEY!);
+
+// Result from streaming listen with speculative LLM
+interface StreamingResult {
+  transcript: string;
+  speculativeLLM: Promise<LLMResponse> | null;
+  stoppedEarly: boolean;
+}
 
 interface SessionResult {
   utteranceCount: number;
@@ -432,100 +418,6 @@ async function recordAudio(): Promise<RecordingResult> {
   });
 }
 
-function isHallucination(text: string): boolean {
-  const lower = text.toLowerCase().trim();
-
-  // Check against known hallucination phrases
-  for (const phrase of HALLUCINATION_PHRASES) {
-    if (lower.includes(phrase)) {
-      return true;
-    }
-  }
-
-  // Very short responses that are likely hallucinations
-  if (lower.length < 3) {
-    return true;
-  }
-
-  return false;
-}
-
-async function transcribe(recording: RecordingResult): Promise<string> {
-  const { buffer: audioBuffer, hasHeardSpeech, peakRMS } = recording;
-
-  // Skip transcription if no speech was detected during recording
-  if (!hasHeardSpeech) {
-    log(`STT: Skipped - no speech detected during recording`);
-    return "";
-  }
-
-  // Skip if audio is too quiet (likely just noise)
-  if (peakRMS < MIN_SPEECH_RMS) {
-    log(`STT: Skipped - audio too quiet (peakRMS=${Math.round(peakRMS)} < ${MIN_SPEECH_RMS})`);
-    return "";
-  }
-
-  if (audioBuffer.length < 4800) {
-    log(`STT: Skipped - buffer too small (${audioBuffer.length} bytes)`);
-    return "";
-  }
-
-  log(`STT: ${audioBuffer.length} bytes`);
-  const start = Date.now();
-
-  const wavBuffer = createWavBuffer(audioBuffer);
-
-  let file;
-  try {
-    file = await toFile(wavBuffer, "audio.wav", { type: "audio/wav" });
-  } catch (err) {
-    throw new Error(`WAV file creation failed: ${err instanceof Error ? err.message : err}`);
-  }
-
-  const response = await withRetry(
-    () => openai.audio.transcriptions.create({
-      model: "whisper-1",
-      file: file,
-      language: "en",
-    }),
-    "STT",
-    { logger: log }
-  );
-
-  const text = response.text.trim();
-
-  // Filter out known hallucinations
-  if (isHallucination(text)) {
-    log(`STT: Filtered hallucination "${text}" in ${Date.now() - start}ms`);
-    return "";
-  }
-
-  log(`STT: "${text}" in ${Date.now() - start}ms`);
-  return text;
-}
-
-function createWavBuffer(pcmBuffer: Buffer): Buffer {
-  const header = Buffer.alloc(44);
-  const dataSize = pcmBuffer.length;
-  const fileSize = dataSize + 36;
-
-  header.write("RIFF", 0);
-  header.writeUInt32LE(fileSize, 4);
-  header.write("WAVE", 8);
-  header.write("fmt ", 12);
-  header.writeUInt32LE(16, 16);
-  header.writeUInt16LE(1, 20);
-  header.writeUInt16LE(CHANNELS, 22);
-  header.writeUInt32LE(SAMPLE_RATE, 24);
-  header.writeUInt32LE(SAMPLE_RATE * CHANNELS * 2, 28);
-  header.writeUInt16LE(CHANNELS * 2, 32);
-  header.writeUInt16LE(16, 34);
-  header.write("data", 36);
-  header.writeUInt32LE(dataSize, 40);
-
-  return Buffer.concat([header, pcmBuffer]);
-}
-
 function getActivityPrompt(activity: Activity): string {
   // Use first script line if available, otherwise use prompt
   if (activity.script && activity.script.length > 0) {
@@ -539,9 +431,193 @@ async function speak(text: string): Promise<void> {
   await playAudio(audio);
 }
 
+/**
+ * Streaming STT with speculative LLM generation.
+ *
+ * Flow:
+ * 1. Open Deepgram live WebSocket
+ * 2. Pipe arecord audio to Deepgram
+ * 3. On final transcript (speech_final=true): start speculative LLM
+ * 4. On UtteranceEnd (2s silence): return with speculative LLM promise
+ *
+ * The speculative LLM runs during Deepgram's 2s silence detection window,
+ * so by the time we know the user is done, the LLM response is often ready.
+ */
+async function streamingListen(
+  activity: Activity,
+  turnNumber: number,
+  isClosing: boolean = false
+): Promise<StreamingResult> {
+  if (AUDIO_DISABLED) {
+    log(`STT: [DISABLED] Returning empty result`);
+    return { transcript: "", speculativeLLM: null, stoppedEarly: false };
+  }
+
+  log(`STT: Starting Deepgram stream (utterance_end=${UTTERANCE_END_MS}ms)`);
+  const start = Date.now();
+
+  return new Promise((resolve, reject) => {
+    let accumulatedTranscript = "";
+    let speculativeLLM: Promise<LLMResponse> | null = null;
+    let arecord: ChildProcess | null = null;
+    let resolved = false;
+    let hasReceivedSpeech = false;
+
+    // Timeout for no speech (use existing config)
+    const maxTimeout = setTimeout(() => {
+      if (!resolved) {
+        log(`STT: Max duration reached (${MAX_RECORD_SECONDS}s)`);
+        cleanup();
+        resolve({ transcript: accumulatedTranscript, speculativeLLM, stoppedEarly: false });
+      }
+    }, MAX_RECORD_SECONDS * 1000);
+
+    // Create Deepgram live connection
+    const connection = deepgram.listen.live({
+      model: "nova-2",
+      language: "en",
+      encoding: "linear16",
+      sample_rate: SAMPLE_RATE,
+      channels: CHANNELS,
+      punctuate: true,
+      interim_results: true,
+      utterance_end_ms: UTTERANCE_END_MS,
+      smart_format: true,
+      vad_events: true,
+    });
+
+    function cleanup() {
+      if (resolved) return;
+      resolved = true;
+      clearTimeout(maxTimeout);
+
+      if (arecord) {
+        arecord.kill("SIGTERM");
+        arecord = null;
+      }
+
+      try {
+        connection.requestClose();
+      } catch (e) {
+        // Ignore close errors
+      }
+    }
+
+    // Handle connection open
+    connection.on(LiveTranscriptionEvents.Open, () => {
+      log(`STT: Deepgram connected`);
+
+      // Start arecord and pipe to Deepgram
+      arecord = spawn("arecord", [
+        "-t", "raw", "-f", SAMPLE_FORMAT, "-c", String(CHANNELS),
+        "-r", String(SAMPLE_RATE), "-q", "-D", INPUT_DEVICE, "-",
+      ], { stdio: ["ignore", "pipe", "inherit"] });
+
+      arecord.stdout?.on("data", (chunk: Buffer) => {
+        try {
+          connection.send(chunk);
+        } catch (e) {
+          // Connection may have closed
+        }
+      });
+
+      arecord.on("error", (err) => {
+        log(`STT: arecord error - ${err.message}`);
+        cleanup();
+        reject(err);
+      });
+
+      arecord.on("exit", (code) => {
+        if (!resolved && code !== 0 && code !== null) {
+          log(`STT: arecord exited with code ${code}`);
+        }
+      });
+    });
+
+    // Handle transcripts
+    connection.on(LiveTranscriptionEvents.Transcript, (data: any) => {
+      const transcript = data.channel?.alternatives?.[0]?.transcript || "";
+      const isFinal = data.is_final === true;
+      const speechFinal = data.speech_final === true;
+
+      if (!transcript) return;
+
+      if (isFinal) {
+        // Accumulate final transcripts
+        if (accumulatedTranscript && transcript) {
+          accumulatedTranscript += " " + transcript;
+        } else {
+          accumulatedTranscript = transcript;
+        }
+
+        log(`STT: Final "${transcript}" (speech_final=${speechFinal})`);
+
+        // Check for stop phrase immediately
+        if (checkStopPhrase(accumulatedTranscript)) {
+          log(`STT: Stop phrase detected!`);
+          cleanup();
+          resolve({ transcript: accumulatedTranscript, speculativeLLM: null, stoppedEarly: true });
+          return;
+        }
+
+        // On speech_final, start speculative LLM generation
+        // This gives us ~2s head start before UtteranceEnd
+        if (speechFinal && accumulatedTranscript.trim()) {
+          hasReceivedSpeech = true;
+          log(`STT: Starting speculative LLM...`);
+          speculativeLLM = generateResponse(accumulatedTranscript, activity, turnNumber, isClosing);
+        }
+      } else {
+        // Log interim transcripts for debugging
+        if (transcript.length > 3) {
+          log(`STT: Interim "${transcript}"`);
+        }
+      }
+    });
+
+    // UtteranceEnd = user definitely done speaking (2s silence)
+    connection.on(LiveTranscriptionEvents.UtteranceEnd, () => {
+      log(`STT: UtteranceEnd after ${Date.now() - start}ms`);
+      cleanup();
+      resolve({
+        transcript: accumulatedTranscript,
+        speculativeLLM,
+        stoppedEarly: false
+      });
+    });
+
+    // Handle speech started event
+    connection.on(LiveTranscriptionEvents.SpeechStarted, () => {
+      log(`STT: Speech started`);
+      hasReceivedSpeech = true;
+    });
+
+    // Handle errors
+    connection.on(LiveTranscriptionEvents.Error, (err: any) => {
+      log(`STT: Deepgram error - ${err.message || err}`);
+      cleanup();
+      reject(new Error(`Deepgram error: ${err.message || err}`));
+    });
+
+    // Handle connection close
+    connection.on(LiveTranscriptionEvents.Close, () => {
+      if (!resolved) {
+        log(`STT: Connection closed unexpectedly`);
+        cleanup();
+        resolve({ transcript: accumulatedTranscript, speculativeLLM, stoppedEarly: false });
+      }
+    });
+  });
+}
+
+/**
+ * Simple listen wrapper for readiness check (no speculation needed)
+ */
 async function listenAndTranscribe(): Promise<string> {
-  const audio = await recordAudio();
-  return transcribe(audio);
+  // Use a dummy activity for the readiness check
+  const dummyActivity: Activity = { id: "readiness", category: "orientation", prompt: "" };
+  const result = await streamingListen(dummyActivity, 0);
+  return result.transcript;
 }
 
 async function runSession(): Promise<SessionResult> {
@@ -559,7 +635,7 @@ async function runSession(): Promise<SessionResult> {
   const { sessionId, planId } = createSessionIdentifiers();
 
   log("\n========================================");
-  log("  COCO SESSION START (Sync Pipeline)");
+  log("  COCO SESSION START (Streaming Pipeline)");
   log(`  Session: ${sessionId.slice(0, 8)}...`);
   log("========================================\n");
 
@@ -698,23 +774,41 @@ async function runSession(): Promise<SessionResult> {
     let listenRetries = 0;
 
     while (!activityComplete && turnNumber < MAX_TURNS_PER_ACTIVITY) {
-      const transcript = await listenAndTranscribe();
+      // Use streaming listen with speculative LLM
+      const result = await streamingListen(activity, turnNumber, isLastActivity);
 
-      if (transcript) {
+      // Handle stop phrase (detected during streaming)
+      if (result.stoppedEarly) {
+        log(`Stop phrase detected!`);
+        if (result.transcript) transcripts.push(result.transcript);
+        stoppedEarly = true;
+        break;
+      }
+
+      if (result.transcript) {
         listenRetries = 0; // Reset retry counter on successful capture
-        transcripts.push(transcript);
-        log(`User (turn ${turnNumber + 1}): "${transcript}"`);
+        transcripts.push(result.transcript);
+        log(`User (turn ${turnNumber + 1}): "${result.transcript}"`);
 
-        // Check for stop phrase
-        if (checkStopPhrase(transcript)) {
-          log(`Stop phrase detected!`);
-          stoppedEarly = true;
-          break;
-        }
-
-        // Generate response and decide whether to follow up
+        // Generate response - use speculative LLM if available
         if (!isLastActivity) {
-          const response = await generateResponse(transcript, activity, turnNumber, false);
+          let response: LLMResponse;
+
+          if (result.speculativeLLM) {
+            // Speculative LLM was started during streaming - await it
+            const speculativeStart = Date.now();
+            response = await result.speculativeLLM;
+            const speculativeWait = Date.now() - speculativeStart;
+            if (speculativeWait < 100) {
+              log(`LLM: Speculative hit! Response ready (waited ${speculativeWait}ms)`);
+            } else {
+              log(`LLM: Speculative partial hit (waited ${speculativeWait}ms)`);
+            }
+          } else {
+            // No speculative LLM - generate now
+            response = await generateResponse(result.transcript, activity, turnNumber, false);
+          }
+
           await speak(response.text);
 
           if (response.shouldFollowUp && turnNumber < MAX_TURNS_PER_ACTIVITY - 1) {
@@ -727,7 +821,7 @@ async function runSession(): Promise<SessionResult> {
           }
         } else {
           // For last activity, just add to history for closing
-          conversationHistory.push({ role: "user", content: transcript });
+          conversationHistory.push({ role: "user", content: result.transcript });
           activityComplete = true;
         }
       } else {
