@@ -13,7 +13,7 @@ import { createClient, LiveTranscriptionEvents } from "@deepgram/sdk";
 import { spawn, ChildProcess } from "node:child_process";
 import { buildPlan, Activity } from "./planner";
 import { sendSessionSummary, sendSessionStartFailed, createSessionIdentifiers, type SessionSummaryPayload, type SessionStatus } from "./backend";
-import { withRetry, API_TIMEOUT_MS } from "./retry";
+import { withRetry, API_TIMEOUT_MS, rateLimitEvents } from "./retry";
 
 // Audio config
 const SAMPLE_RATE = 24000;
@@ -890,6 +890,9 @@ async function runSession(): Promise<SessionResult> {
     status,
     sentiment_summary: status === "unattended" ? "neutral" : "positive",
     sentiment_score: status === "unattended" ? 0.5 : 0.75,
+    notes: rateLimitEvents.length > 0
+      ? `Rate limits hit: ${rateLimitEvents.map(e => `${e.label}@${e.timestamp}`).join(", ")}`
+      : undefined,
   };
 
   await sendSessionSummary(payload);

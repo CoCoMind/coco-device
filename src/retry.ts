@@ -9,12 +9,30 @@ export const RETRY_DELAY_MS = 500;
 
 export type RetryableError = Error & { status?: number };
 
+export type RateLimitEvent = {
+  label: string;
+  attempt: number;
+  backoffMs: number;
+  timestamp: string;
+};
+
+// Recorded rate limit events for this session
+export const rateLimitEvents: RateLimitEvent[] = [];
+
+/**
+ * Check if error is a rate limit (429)
+ */
+export function isRateLimitError(err: RetryableError): boolean {
+  return err.status === 429 || err.message.toLowerCase().includes("rate limit");
+}
+
 /**
  * Check if an error is retryable (transient network/server errors)
  */
 export function isRetryableError(err: RetryableError): boolean {
   const message = err.message.toLowerCase();
   return (
+    isRateLimitError(err) ||
     message.includes("timeout") ||
     message.includes("econnreset") ||
     message.includes("etimedout") ||
@@ -62,8 +80,23 @@ export async function withRetry<T>(
         throw lastError;
       }
 
-      log(`${label}: Attempt ${attempt}/${maxRetries + 1} failed, retrying in ${delayMs}ms...`);
-      await new Promise(resolve => setTimeout(resolve, delayMs));
+      // Use longer backoff for rate limits (5s, 10s, 20s...)
+      const isRateLimit = isRateLimitError(lastError);
+      const backoff = isRateLimit
+        ? 5000 * Math.pow(2, attempt - 1)
+        : delayMs;
+
+      if (isRateLimit) {
+        rateLimitEvents.push({
+          label,
+          attempt,
+          backoffMs: backoff,
+          timestamp: new Date().toISOString(),
+        });
+      }
+
+      log(`${label}: Attempt ${attempt}/${maxRetries + 1} failed${isRateLimit ? " (rate limited)" : ""}, retrying in ${backoff}ms...`);
+      await new Promise(resolve => setTimeout(resolve, backoff));
     }
   }
 
