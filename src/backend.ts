@@ -153,6 +153,74 @@ export type SessionStartFailedPayload = {
  * Reports a session crash/error using the existing session_summary endpoint.
  * Creates a minimal session with status="error_exit" and error details in notes.
  */
+export interface AudioUploadMetadata {
+  session_id: string;
+  device_id: string;
+  participant_id?: string;
+  turn_number: number;
+  activity_id?: string;
+  duration_ms: number;
+  recorded_at: string;
+  sha256?: string;
+}
+
+/**
+ * Upload audio recording to backend.
+ */
+export async function uploadAudioRecording(
+  recordingId: string,
+  filePath: string,
+  metadata: AudioUploadMetadata
+): Promise<{ success: boolean; url?: string }> {
+  if (!BACKEND_URL) {
+    log.warn("backend", "Skipping audio upload; base URL not configured");
+    return { success: false };
+  }
+
+  const { readFileSync } = await import("node:fs");
+  let fileBuffer: Buffer;
+  try {
+    fileBuffer = readFileSync(filePath);
+  } catch (err) {
+    log.error("backend", `Failed to read audio file ${filePath}`, err);
+    return { success: false };
+  }
+
+  const url = new URL("/internal/ingest/audio", BACKEND_URL).toString();
+  const formData = new FormData();
+  formData.append("file", new Blob([new Uint8Array(fileBuffer)]), `${recordingId}.opus`);
+  formData.append("metadata", JSON.stringify(metadata));
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), BACKEND_TIMEOUT_MS * 2); // longer timeout for upload
+
+  try {
+    log.request("POST", url, { recordingId, size: fileBuffer.length }, 1, 1);
+
+    const res = await fetch(url, {
+      method: "POST",
+      headers: INGEST_TOKEN ? { Authorization: `Bearer ${INGEST_TOKEN}` } : {},
+      body: formData,
+      signal: controller.signal,
+    });
+    clearTimeout(timer);
+
+    if (!res.ok) {
+      const body = await res.text().catch(() => "");
+      log.error("backend", `Audio upload failed: ${res.status} ${body}`);
+      return { success: false };
+    }
+
+    const data = await res.json().catch(() => ({})) as { url?: string };
+    log.response("POST", url, res.status, 0);
+    return { success: true, url: data.url };
+  } catch (err) {
+    clearTimeout(timer);
+    log.error("backend", "Audio upload error", err);
+    return { success: false };
+  }
+}
+
 export async function sendSessionStartFailed(payload: SessionStartFailedPayload): Promise<boolean> {
   log.lifecycle("Sending error session to backend", {
     device_id: payload.device_id,

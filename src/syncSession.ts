@@ -14,6 +14,7 @@ import { spawn, ChildProcess } from "node:child_process";
 import { buildPlan, Activity } from "./planner";
 import { sendSessionSummary, sendSessionStartFailed, createSessionIdentifiers, type SessionSummaryPayload, type SessionStatus } from "./backend";
 import { withRetry, API_TIMEOUT_MS, rateLimitEvents } from "./retry";
+import { saveRecording, processUploadQueue, cleanupOldRecordings, closeAudioDb } from "./audioStorage";
 
 // Audio config
 const SAMPLE_RATE = 24000;
@@ -53,6 +54,8 @@ interface StreamingResult {
   transcript: string;
   speculativeLLM: Promise<LLMResponse> | null;
   stoppedEarly: boolean;
+  audioBuffer: Buffer;
+  durationMs: number;
 }
 
 interface SessionResult {
@@ -450,7 +453,7 @@ async function streamingListen(
 ): Promise<StreamingResult> {
   if (AUDIO_DISABLED) {
     log(`STT: [DISABLED] Returning empty result`);
-    return { transcript: "", speculativeLLM: null, stoppedEarly: false };
+    return { transcript: "", speculativeLLM: null, stoppedEarly: false, audioBuffer: Buffer.alloc(0), durationMs: 0 };
   }
 
   log(`STT: Starting Deepgram stream (utterance_end=${UTTERANCE_END_MS}ms)`);
@@ -462,13 +465,21 @@ async function streamingListen(
     let arecord: ChildProcess | null = null;
     let resolved = false;
     let hasReceivedSpeech = false;
+    const audioChunks: Buffer[] = []; // Capture audio for storage
+
+    // Helper to build result with audio
+    const buildResult = (transcript: string, llm: Promise<LLMResponse> | null, stopped: boolean): StreamingResult => {
+      const audioBuffer = Buffer.concat(audioChunks);
+      const durationMs = Math.round((audioBuffer.length / (SAMPLE_RATE * 2)) * 1000);
+      return { transcript, speculativeLLM: llm, stoppedEarly: stopped, audioBuffer, durationMs };
+    };
 
     // Timeout for no speech (use existing config)
     const maxTimeout = setTimeout(() => {
       if (!resolved) {
         log(`STT: Max duration reached (${MAX_RECORD_SECONDS}s)`);
         cleanup();
-        resolve({ transcript: accumulatedTranscript, speculativeLLM, stoppedEarly: false });
+        resolve(buildResult(accumulatedTranscript, speculativeLLM, false));
       }
     }, MAX_RECORD_SECONDS * 1000);
 
@@ -514,8 +525,9 @@ async function streamingListen(
       ], { stdio: ["ignore", "pipe", "inherit"] });
 
       arecord.stdout?.on("data", (chunk: Buffer) => {
+        audioChunks.push(chunk); // Capture for storage
         try {
-          connection.send(chunk);
+          connection.send(chunk.buffer.slice(chunk.byteOffset, chunk.byteOffset + chunk.byteLength));
         } catch (e) {
           // Connection may have closed
         }
@@ -556,7 +568,7 @@ async function streamingListen(
         if (checkStopPhrase(accumulatedTranscript)) {
           log(`STT: Stop phrase detected!`);
           cleanup();
-          resolve({ transcript: accumulatedTranscript, speculativeLLM: null, stoppedEarly: true });
+          resolve(buildResult(accumulatedTranscript, null, true));
           return;
         }
 
@@ -579,11 +591,7 @@ async function streamingListen(
     connection.on(LiveTranscriptionEvents.UtteranceEnd, () => {
       log(`STT: UtteranceEnd after ${Date.now() - start}ms`);
       cleanup();
-      resolve({
-        transcript: accumulatedTranscript,
-        speculativeLLM,
-        stoppedEarly: false
-      });
+      resolve(buildResult(accumulatedTranscript, speculativeLLM, false));
     });
 
     // Handle speech started event
@@ -604,7 +612,7 @@ async function streamingListen(
       if (!resolved) {
         log(`STT: Connection closed unexpectedly`);
         cleanup();
-        resolve({ transcript: accumulatedTranscript, speculativeLLM, stoppedEarly: false });
+        resolve(buildResult(accumulatedTranscript, speculativeLLM, false));
       }
     });
   });
@@ -781,6 +789,17 @@ async function runSession(): Promise<SessionResult> {
       if (result.stoppedEarly) {
         log(`Stop phrase detected!`);
         if (result.transcript) transcripts.push(result.transcript);
+        // Save audio even when stopping early
+        if (result.audioBuffer.length > 0) {
+          saveRecording(result.audioBuffer, {
+            sessionId,
+            deviceId,
+            participantId,
+            turnNumber: transcripts.length,
+            activityId: activity.id,
+            durationMs: result.durationMs,
+          }).catch(err => log(`Audio save failed: ${err}`));
+        }
         stoppedEarly = true;
         break;
       }
@@ -789,6 +808,18 @@ async function runSession(): Promise<SessionResult> {
         listenRetries = 0; // Reset retry counter on successful capture
         transcripts.push(result.transcript);
         log(`User (turn ${turnNumber + 1}): "${result.transcript}"`);
+
+        // Save audio recording locally (async, don't block)
+        if (result.audioBuffer.length > 0) {
+          saveRecording(result.audioBuffer, {
+            sessionId,
+            deviceId,
+            participantId,
+            turnNumber: transcripts.length,
+            activityId: activity.id,
+            durationMs: result.durationMs,
+          }).catch(err => log(`Audio save failed: ${err}`));
+        }
 
         // Generate response - use speculative LLM if available
         if (!isLastActivity) {
@@ -897,6 +928,14 @@ async function runSession(): Promise<SessionResult> {
 
   await sendSessionSummary(payload);
 
+  // Process audio upload queue (async, best-effort)
+  try {
+    await processUploadQueue();
+    cleanupOldRecordings();
+  } catch (err) {
+    log(`Audio queue processing failed: ${err}`);
+  }
+
   // Personalized closing (wrapped in try/catch - summary already sent)
   try {
     if (!stoppedEarly && transcripts.length > 0) {
@@ -913,6 +952,9 @@ async function runSession(): Promise<SessionResult> {
     // Log but don't throw - session summary already sent
     log(`Closing speech failed (session data saved): ${closingErr}`);
   }
+
+  // Close audio database
+  closeAudioDb();
 
   return {
     utteranceCount: transcripts.length,
