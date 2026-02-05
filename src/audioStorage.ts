@@ -1,7 +1,7 @@
 /**
  * Audio storage module - handles local recording storage and upload queue.
  *
- * Local storage: SQLite database + Opus-encoded audio files
+ * Local storage: SQLite database + FLAC-encoded audio files
  * Remote storage: Upload to backend (which stores in R2 + Neon)
  */
 
@@ -24,7 +24,6 @@ const STORAGE_DIR = process.env.COCO_AUDIO_STORAGE_DIR ?? "/var/lib/coco";
 const UPLOAD_ENABLED = process.env.COCO_AUDIO_UPLOAD_ENABLED !== "0";
 const RETENTION_DAYS = Number(process.env.COCO_AUDIO_RETENTION_DAYS) || 7;
 const MAX_UPLOAD_ATTEMPTS = 5;
-const OPUS_BITRATE = 24; // kbps - excellent for speech
 
 // Audio constants (match syncSession.ts)
 const SAMPLE_RATE = 24000;
@@ -38,6 +37,8 @@ export interface RecordingMetadata {
   turnNumber: number;
   activityId?: string;
   durationMs: number;
+  role: "user" | "assistant";
+  transcript?: string;
 }
 
 export interface Recording {
@@ -46,11 +47,13 @@ export interface Recording {
   device_id: string;
   participant_id: string | null;
   turn_number: number;
+  role: string;
   activity_id: string | null;
   duration_ms: number;
   file_size_bytes: number;
   file_path: string;
   sha256: string | null;
+  transcript: string | null;
   upload_status: string;
   upload_attempts: number;
   recorded_at: string;
@@ -64,15 +67,16 @@ CREATE TABLE IF NOT EXISTS recordings (
   device_id TEXT NOT NULL,
   participant_id TEXT,
   turn_number INTEGER NOT NULL,
+  role TEXT NOT NULL DEFAULT 'user',
   activity_id TEXT,
   duration_ms INTEGER NOT NULL,
   file_size_bytes INTEGER NOT NULL,
-  codec TEXT DEFAULT 'opus',
+  codec TEXT DEFAULT 'flac',
   sample_rate INTEGER DEFAULT 24000,
   channels INTEGER DEFAULT 1,
-  bitrate_kbps INTEGER DEFAULT 24,
   file_path TEXT NOT NULL,
   sha256 TEXT,
+  transcript TEXT,
   upload_status TEXT DEFAULT 'pending',
   upload_attempts INTEGER DEFAULT 0,
   last_attempt_at TEXT,
@@ -101,20 +105,17 @@ function getDb(): Database.Database {
   return db;
 }
 
-// Encode PCM buffer to Opus using ffmpeg
-async function encodeToOpus(pcmBuffer: Buffer): Promise<Buffer> {
+// Encode PCM buffer to FLAC using ffmpeg
+async function encodeToFlac(pcmBuffer: Buffer): Promise<Buffer> {
   return new Promise((resolve, reject) => {
     const ffmpeg = spawn("ffmpeg", [
       "-f", "s16le",
       "-ar", String(SAMPLE_RATE),
       "-ac", String(CHANNELS),
       "-i", "pipe:0",
-      "-c:a", "libopus",
-      "-b:a", `${OPUS_BITRATE}k`,
-      "-vbr", "on",
-      "-compression_level", "10",
-      "-application", "voip",
-      "-f", "opus",
+      "-c:a", "flac",
+      "-compression_level", "5",
+      "-f", "flac",
       "pipe:1",
     ]);
 
@@ -158,7 +159,7 @@ function generateFilePath(deviceId: string, recordingId: string): string {
     String(year),
     month,
     day,
-    `${timestamp}_${recordingId.slice(0, 8)}.opus`
+    `${timestamp}_${recordingId.slice(0, 8)}.flac`
   );
 }
 
@@ -174,21 +175,21 @@ export async function saveRecording(
   metadata: RecordingMetadata
 ): Promise<string> {
   const id = randomUUID();
-  const { sessionId, deviceId, participantId, turnNumber, activityId, durationMs } = metadata;
+  const { sessionId, deviceId, participantId, turnNumber, activityId, durationMs, role, transcript } = metadata;
   const recordedAt = new Date().toISOString();
 
   let audioBuffer: Buffer;
-  let codec = "opus";
+  let codec = "flac";
   try {
-    audioBuffer = await encodeToOpus(pcmBuffer);
+    audioBuffer = await encodeToFlac(pcmBuffer);
   } catch (err) {
-    logger.warn("audio", `Opus encoding failed, saving raw PCM: ${err}`);
+    logger.warn("audio", `FLAC encoding failed, saving raw PCM: ${err}`);
     audioBuffer = pcmBuffer;
     codec = "pcm";
   }
 
   const filePath = generateFilePath(deviceId, id);
-  const finalPath = codec === "pcm" ? filePath.replace(".opus", ".pcm") : filePath;
+  const finalPath = codec === "pcm" ? filePath.replace(".flac", ".pcm") : filePath;
 
   mkdirSync(dirname(finalPath), { recursive: true, mode: 0o700 });
 
@@ -200,16 +201,16 @@ export async function saveRecording(
   const database = getDb();
   database.prepare(`
     INSERT INTO recordings (
-      id, session_id, device_id, participant_id, turn_number, activity_id,
-      duration_ms, file_size_bytes, codec, file_path, sha256, recorded_at, delete_after_utc
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      id, session_id, device_id, participant_id, turn_number, role, activity_id,
+      duration_ms, file_size_bytes, codec, file_path, sha256, transcript, recorded_at, delete_after_utc
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
-    id, sessionId, deviceId, participantId ?? null, turnNumber, activityId ?? null,
-    durationMs, audioBuffer.length, codec, finalPath, sha256, recordedAt, deleteAfter
+    id, sessionId, deviceId, participantId ?? null, turnNumber, role, activityId ?? null,
+    durationMs, audioBuffer.length, codec, finalPath, sha256, transcript ?? null, recordedAt, deleteAfter
   );
 
   const ratio = (pcmBuffer.length / audioBuffer.length).toFixed(1);
-  logger.info("audio", `Saved ${finalPath} (${audioBuffer.length} bytes, ${ratio}x compression)`);
+  logger.info("audio", `Saved ${finalPath} (${audioBuffer.length} bytes, ${ratio}x compression, role=${role})`);
 
   return id;
 }
@@ -322,10 +323,12 @@ export async function processUploadQueue(): Promise<number> {
       device_id: recording.device_id,
       participant_id: recording.participant_id ?? undefined,
       turn_number: recording.turn_number,
+      role: recording.role as "user" | "assistant",
       activity_id: recording.activity_id ?? undefined,
       duration_ms: recording.duration_ms,
       recorded_at: recording.recorded_at,
       sha256: recording.sha256 ?? undefined,
+      transcript: recording.transcript ?? undefined,
     });
 
     if (result.success) {

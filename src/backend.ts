@@ -149,23 +149,22 @@ export type SessionStartFailedPayload = {
   timestamp: string;
 };
 
-/**
- * Reports a session crash/error using the existing session_summary endpoint.
- * Creates a minimal session with status="error_exit" and error details in notes.
- */
 export interface AudioUploadMetadata {
   session_id: string;
   device_id: string;
   participant_id?: string;
   turn_number: number;
+  role: "user" | "assistant";
   activity_id?: string;
   duration_ms: number;
   recorded_at: string;
   sha256?: string;
+  transcript?: string;
 }
 
 /**
  * Upload audio recording to backend.
+ * Uses the session_audio endpoint for organized storage with manifest.
  */
 export async function uploadAudioRecording(
   recordingId: string,
@@ -186,16 +185,20 @@ export async function uploadAudioRecording(
     return { success: false };
   }
 
-  const url = new URL("/internal/ingest/audio", BACKEND_URL).toString();
+  // Use session_audio endpoint for organized storage with manifest
+  const url = new URL("/internal/ingest/session_audio", BACKEND_URL).toString();
   const formData = new FormData();
-  formData.append("file", new Blob([new Uint8Array(fileBuffer)]), `${recordingId}.opus`);
-  formData.append("metadata", JSON.stringify(metadata));
+  formData.append("file", new Blob([new Uint8Array(fileBuffer)]), `${recordingId}.flac`);
+  formData.append("metadata", JSON.stringify({
+    recording_id: recordingId,
+    ...metadata,
+  }));
 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), BACKEND_TIMEOUT_MS * 2); // longer timeout for upload
 
   try {
-    log.request("POST", url, { recordingId, size: fileBuffer.length }, 1, 1);
+    log.request("POST", url, { recordingId, role: metadata.role, size: fileBuffer.length }, 1, 1);
 
     const res = await fetch(url, {
       method: "POST",

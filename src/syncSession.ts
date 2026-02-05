@@ -434,6 +434,42 @@ async function speak(text: string): Promise<void> {
   await playAudio(audio);
 }
 
+// Session context for saving audio
+interface SessionContext {
+  sessionId: string;
+  deviceId: string;
+  participantId?: string;
+}
+
+let currentSession: SessionContext | null = null;
+let assistantTurnCounter = 0;
+
+/**
+ * Speak and save assistant audio to storage.
+ */
+async function speakAndSave(
+  text: string,
+  activityId?: string,
+): Promise<void> {
+  const audio = await textToSpeech(text);
+  await playAudio(audio);
+
+  // Save assistant audio if session context is available
+  if (currentSession && audio.length > 0) {
+    const durationMs = Math.round((audio.length / (SAMPLE_RATE * 2)) * 1000);
+    saveRecording(audio, {
+      sessionId: currentSession.sessionId,
+      deviceId: currentSession.deviceId,
+      participantId: currentSession.participantId,
+      turnNumber: assistantTurnCounter,
+      activityId,
+      durationMs,
+      role: "assistant",
+      transcript: text,
+    }).catch(err => log(`Assistant audio save failed: ${err}`));
+  }
+}
+
 /**
  * Streaming STT with speculative LLM generation.
  *
@@ -642,6 +678,10 @@ async function runSession(): Promise<SessionResult> {
   // Generate session identifiers
   const { sessionId, planId } = createSessionIdentifiers();
 
+  // Set session context for audio saving
+  currentSession = { sessionId, deviceId, participantId };
+  assistantTurnCounter = 0;
+
   log("\n========================================");
   log("  COCO SESSION START (Streaming Pipeline)");
   log(`  Session: ${sessionId.slice(0, 8)}...`);
@@ -798,6 +838,8 @@ async function runSession(): Promise<SessionResult> {
             turnNumber: transcripts.length,
             activityId: activity.id,
             durationMs: result.durationMs,
+            role: "user",
+            transcript: result.transcript,
           }).catch(err => log(`Audio save failed: ${err}`));
         }
         stoppedEarly = true;
@@ -809,7 +851,7 @@ async function runSession(): Promise<SessionResult> {
         transcripts.push(result.transcript);
         log(`User (turn ${turnNumber + 1}): "${result.transcript}"`);
 
-        // Save audio recording locally (async, don't block)
+        // Save user audio recording locally (async, don't block)
         if (result.audioBuffer.length > 0) {
           saveRecording(result.audioBuffer, {
             sessionId,
@@ -818,6 +860,8 @@ async function runSession(): Promise<SessionResult> {
             turnNumber: transcripts.length,
             activityId: activity.id,
             durationMs: result.durationMs,
+            role: "user",
+            transcript: result.transcript,
           }).catch(err => log(`Audio save failed: ${err}`));
         }
 
@@ -840,7 +884,8 @@ async function runSession(): Promise<SessionResult> {
             response = await generateResponse(result.transcript, activity, turnNumber, false);
           }
 
-          await speak(response.text);
+          assistantTurnCounter++;
+          await speakAndSave(response.text, activity.id);
 
           if (response.shouldFollowUp && turnNumber < MAX_TURNS_PER_ACTIVITY - 1) {
             // Continue conversation in this activity
@@ -942,18 +987,22 @@ async function runSession(): Promise<SessionResult> {
       // Generate personalized closing based on session
       const closingActivity = plan[plan.length - 1];
       const closingResponse = await generateResponse("", closingActivity, 0, true);
-      await speak(closingResponse.text);
+      assistantTurnCounter++;
+      await speakAndSave(closingResponse.text, closingActivity.id);
     } else if (stoppedEarly) {
-      await speak("It was lovely chatting with you. Take care!");
+      assistantTurnCounter++;
+      await speakAndSave("It was lovely chatting with you. Take care!", "closing");
     } else {
-      await speak("Thank you for spending this time with me. Take care, and I'll see you next time!");
+      assistantTurnCounter++;
+      await speakAndSave("Thank you for spending this time with me. Take care, and I'll see you next time!", "closing");
     }
   } catch (closingErr) {
     // Log but don't throw - session summary already sent
     log(`Closing speech failed (session data saved): ${closingErr}`);
   }
 
-  // Close audio database
+  // Clear session context and close audio database
+  currentSession = null;
   closeAudioDb();
 
   return {
