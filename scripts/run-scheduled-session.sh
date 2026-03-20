@@ -8,9 +8,11 @@ LOCK_FILE="${LOCK_FILE:-/tmp/coco-session-runner.lock}"
 LAST_SESSION_FILE="${LAST_SESSION_FILE:-/var/lib/coco/last_session_at}"
 NETWORK_RETRY_SECONDS="${NETWORK_RETRY_SECONDS:-300}"
 MAX_NETWORK_ATTEMPTS="${MAX_NETWORK_ATTEMPTS:-12}"
-SESSION_CMD="${SESSION_CMD:-/usr/local/bin/coco-native-agent-boot.sh}"
+SESSION_CMD="${SESSION_CMD:-/usr/local/bin/coco-engine-boot.sh}"
 CONNECTIVITY_PROBE="${CONNECTIVITY_PROBE:-https://www.google.com/generate_204}"
 API_DNS_CHECK="${API_DNS_CHECK:-api.openai.com}"
+API_DNS_CHECK_2="${API_DNS_CHECK_2:-api.assemblyai.com}"
+API_DNS_CHECK_3="${API_DNS_CHECK_3:-api.anthropic.com}"
 MIN_SESSION_SECONDS="${MIN_SESSION_SECONDS:-10}"
 
 log() {
@@ -43,9 +45,17 @@ check_network_once() {
       return 1
     fi
   fi
-  # Also verify DNS resolution for the API endpoint
+  # Also verify DNS resolution for API endpoints
   if ! getent hosts "$API_DNS_CHECK" >/dev/null 2>&1; then
     log "DNS resolution failed for ${API_DNS_CHECK}"
+    return 1
+  fi
+  if ! getent hosts "$API_DNS_CHECK_2" >/dev/null 2>&1; then
+    log "DNS resolution failed for ${API_DNS_CHECK_2}"
+    return 1
+  fi
+  if ! getent hosts "$API_DNS_CHECK_3" >/dev/null 2>&1; then
+    log "DNS resolution failed for ${API_DNS_CHECK_3}"
     return 1
   fi
   return 0
